@@ -56,8 +56,9 @@ func (fs *FSObjects) encodePartFile(partNumber int, etag string, actualSize int6
 	return fmt.Sprintf("%.5d.%s.%d", partNumber, etag, actualSize)
 }
 
-func (fs *FSObjects) getbgAppendsPath(bucket, uploadID string) string {
-	return pathJoin(fs.fsPath, bucket, "."+uploadID, bgAppendsDirName)
+func (fs *FSObjects) getbgAppendsPath(bucket, object, uploadID string) string {
+	objPath := pathJoin(fs.fsPath, bucket, object)
+	return pathJoin(filepath.Dir(objPath), "."+uploadID, bgAppendsDirName)
 }
 
 // Returns partNumber and etag
@@ -82,7 +83,7 @@ func (fs *FSObjects) backgroundAppend(ctx context.Context, bucket, object, uploa
 	fs.appendFileMapMu.Lock()
 	logger.GetReqInfo(ctx).AppendTags("uploadID", uploadID)
 	// 检测目录是否存在
-	tmpbgAppendsPath := fs.getbgAppendsPath(bucket, uploadID)
+	tmpbgAppendsPath := fs.getbgAppendsPath(bucket, object, uploadID)
 	if _, err := fsStat(ctx, tmpbgAppendsPath); os.IsNotExist(err) {
 		err := os.MkdirAll(tmpbgAppendsPath, 0755)
 		if err != nil {
@@ -95,7 +96,7 @@ func (fs *FSObjects) backgroundAppend(ctx context.Context, bucket, object, uploa
 	if file == nil {
 		file = &fsAppendFile{
 			// filePath: pathJoin(fs.fsPath, minioMetaTmpBucket, fs.fsUUID, bgAppendsDirName, fmt.Sprintf("%s.%s", uploadID, mustGetUUID())),
-			filePath: pathJoin(fs.getbgAppendsPath(bucket, uploadID), fmt.Sprintf("%s.%s", uploadID, mustGetUUID())),
+			filePath: pathJoin(fs.getbgAppendsPath(bucket, object, uploadID), fmt.Sprintf("%s.%s", uploadID, mustGetUUID())),
 		}
 		fs.appendFileMap[uploadID] = file
 	}
@@ -665,7 +666,7 @@ func (fs *FSObjects) CompleteMultipartUpload(ctx context.Context, bucket string,
 
 	appendFallback := true // In case background-append did not append the required parts.
 	// appendFilePath := pathJoin(fs.fsPath, minioMetaTmpBucket, fs.fsUUID, "bg-appends", fmt.Sprintf("%s.%s", uploadID, mustGetUUID()))
-	appendFilePath := pathJoin(fs.getbgAppendsPath(bucket, uploadID), fmt.Sprintf("%s.%s", uploadID, mustGetUUID()))
+	appendFilePath := pathJoin(fs.getbgAppendsPath(bucket, object, uploadID), fmt.Sprintf("%s.%s", uploadID, mustGetUUID()))
 	// Most of the times appendFile would already be fully appended by now. We call fs.backgroundAppend()
 	// to take care of the following corner case:
 	// 1. The last PutObjectPart triggers go-routine fs.backgroundAppend, this go-routine has not started yet.
@@ -798,7 +799,7 @@ func (fs *FSObjects) CompleteMultipartUpload(ctx context.Context, bucket string,
 
 		Rename(uploadIDDir, fsTmpObjPath)
 
-		tmpDataPath := filepath.Dir(fs.getbgAppendsPath(bucket, uploadID))
+		tmpDataPath := filepath.Dir(fs.getbgAppendsPath(bucket, object, uploadID))
 		defer fsRemoveAll(ctx, tmpDataPath)
 
 		// It is safe to ignore any directory not empty error (in case there were multiple uploadIDs on the same object)
@@ -860,7 +861,7 @@ func (fs *FSObjects) AbortMultipartUpload(ctx context.Context, bucket, object, u
 
 		Rename(uploadIDDir, fsTmpObjPath)
 
-		tmpDataPath := filepath.Dir(fs.getbgAppendsPath(bucket, uploadID))
+		tmpDataPath := filepath.Dir(fs.getbgAppendsPath(bucket, object, uploadID))
 		defer fsRemoveAll(ctx, tmpDataPath)
 		// It is safe to ignore any directory not empty error (in case there were multiple uploadIDs on the same object)
 		fsRemoveDir(ctx, fs.getMultipartSHADir(bucket, object))

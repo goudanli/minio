@@ -1081,9 +1081,10 @@ func (fs *FSObjects) putObject(ctx context.Context, bucket string, object string
 	// Uploaded object will first be written to the temporary location which will eventually
 	// be renamed to the actual location. It is first written to the temporary location
 	// so that cleaning it up will be easy if the server goes down.
+	objPath := pathJoin(fs.fsPath, bucket, object)
 	tempObj := "." + mustGetUUID()
 	// fsTmpObjPath := pathJoin(fs.fsPath, minioMetaTmpBucket, fs.fsUUID, tempObj)
-	fsTmpObjPath := pathJoin(fs.fsPath, bucket, tempObj)
+	fsTmpObjPath := pathJoin(filepath.Dir(objPath), tempObj)
 	bytesWritten, err := fsCreateFile(ctx, fsTmpObjPath, data, data.Size())
 
 	// Delete the temporary object in the case of a
