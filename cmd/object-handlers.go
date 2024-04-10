@@ -2903,6 +2903,18 @@ func (api objectAPIHandlers) PutObjectPartHandler(w http.ResponseWriter, r *http
 			return
 		}
 	}
+	offset := int64(-1)
+	if value, ok := r.Header["X-Amz-Data-Offset"]; ok {
+		// log.Printf("offset value:%s", value[0])
+		offset, err = strconv.ParseInt(value[0], 10, 64)
+		if err != nil {
+			writeErrorResponse(ctx, w, toAPIError(ctx, err), r.URL)
+			return
+		}
+	}
+
+	// 设置offset
+	ctx = context.WithValue(ctx, "offset", offset)
 
 	putObjectPart := objectAPI.PutObjectPart
 	if api.CacheAPI() != nil {

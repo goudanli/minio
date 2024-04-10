@@ -56,6 +56,11 @@ func (fs *FSObjects) encodePartFile(partNumber int, etag string, actualSize int6
 	return fmt.Sprintf("%.5d.%s.%d", partNumber, etag, actualSize)
 }
 
+// Returns partNumber.etag
+func (fs *FSObjects) encodePartFile2(partNumber int, etag string, actualSize int64, offset int64) string {
+	return fmt.Sprintf("%.5d.%s.%d.%d", partNumber, etag, actualSize, offset)
+}
+
 func (fs *FSObjects) getbgAppendsPath(bucket, object, uploadID string) string {
 	objPath := pathJoin(fs.fsPath, bucket, object)
 	return pathJoin(filepath.Dir(objPath), "."+uploadID, bgAppendsDirName)
@@ -76,6 +81,27 @@ func (fs *FSObjects) decodePartFile(name string) (partNumber int, etag string, a
 		return 0, "", 0, errUnexpected
 	}
 	return partNumber, result[1], actualSize, nil
+}
+
+// Returns partNumber and etag
+func (fs *FSObjects) decodePartFile2(name string) (partNumber int, etag string, actualSize int64, offset int64, err error) {
+	result := strings.Split(name, ".")
+	if len(result) != 4 {
+		return 0, "", 0, 0, errUnexpected
+	}
+	partNumber, err = strconv.Atoi(result[0])
+	if err != nil {
+		return 0, "", 0, 0, errUnexpected
+	}
+	actualSize, err = strconv.ParseInt(result[2], 10, 64)
+	if err != nil {
+		return 0, "", 0, 0, errUnexpected
+	}
+	offset, err = strconv.ParseInt(result[3], 10, 64)
+	if err != nil {
+		return 0, "", 0, 0, errUnexpected
+	}
+	return partNumber, result[1], actualSize, offset, nil
 }
 
 // Appends parts to an appendFile sequentially.
@@ -121,7 +147,8 @@ func (fs *FSObjects) backgroundAppend(ctx context.Context, bucket, object, uploa
 		if entry == fs.metaJSONFile {
 			continue
 		}
-		partNumber, etag, actualSize, err := fs.decodePartFile(entry)
+		// partNumber, etag, actualSize, err := fs.decodePartFile(entry)
+		partNumber, etag, actualSize, offset, err := fs.decodePartFile2(entry)
 		if err != nil {
 			// Skip part files whose name don't match expected format. These could be backend filesystem specific files.
 			continue
@@ -134,9 +161,9 @@ func (fs *FSObjects) backgroundAppend(ctx context.Context, bucket, object, uploa
 			// Required part number is not yet uploaded.
 			return
 		}
-
+		// log.Printf("background offset:%d", offset)
 		partPath := pathJoin(uploadIDDir, entry)
-		err = xioutil.AppendFile(file.filePath, partPath, globalFSOSync)
+		err = xioutil.AppendFile(file.filePath, partPath, globalFSOSync, offset)
 		if err != nil {
 			reqInfo := logger.GetReqInfo(ctx).AppendTags("partPath", partPath)
 			reqInfo.AppendTags("filepath", file.filePath)
@@ -323,6 +350,11 @@ func (fs *FSObjects) PutObjectPart(ctx context.Context, bucket, object, uploadID
 		logger.LogIf(ctx, errInvalidArgument, logger.Application)
 		return pi, toObjectErr(errInvalidArgument)
 	}
+	offset, ok := ctx.Value("offset").(int64)
+	if !ok {
+		logger.LogIf(ctx, errInvalidArgument, logger.Application)
+		return pi, toObjectErr(errInvalidArgument)
+	}
 
 	uploadIDDir := fs.getUploadIDDir(bucket, object, uploadID)
 
@@ -359,7 +391,8 @@ func (fs *FSObjects) PutObjectPart(ctx context.Context, bucket, object, uploadID
 		etag = GenETag()
 	}
 
-	partPath := pathJoin(uploadIDDir, fs.encodePartFile(partID, etag, data.ActualSize()))
+	// partPath := pathJoin(uploadIDDir, fs.encodePartFile(partID, etag, data.ActualSize()))
+	partPath := pathJoin(uploadIDDir, fs.encodePartFile2(partID, etag, data.ActualSize(), offset))
 
 	// Make sure not to create parent directories if they don't exist - the upload might have been aborted.
 	if err = Rename(tmpPartPath, partPath); err != nil {
@@ -622,7 +655,8 @@ func (fs *FSObjects) CompleteMultipartUpload(ctx context.Context, bucket string,
 
 		// Read the actualSize from the pathFileName.
 		subParts := strings.Split(partFile, ".")
-		actualSize, err = strconv.ParseInt(subParts[len(subParts)-1], 10, 64)
+		// actualSize, err = strconv.ParseInt(subParts[len(subParts)-1], 10, 64)
+		actualSize, err = strconv.ParseInt(subParts[len(subParts)-2], 10, 64)
 		if err != nil {
 			return oi, InvalidPart{
 				PartNumber: part.PartNumber,
@@ -713,7 +747,12 @@ func (fs *FSObjects) CompleteMultipartUpload(ctx context.Context, bucket string,
 					GotETag:    part.ETag,
 				}
 			}
-			if err = xioutil.AppendFile(appendFilePath, pathJoin(uploadIDDir, partFile), globalFSOSync); err != nil {
+			_, _, _, offset, err := fs.decodePartFile2(partFile)
+			// log.Printf("complete offset:%d", offset)
+			if err != nil {
+				return oi, err
+			}
+			if err = xioutil.AppendFile(appendFilePath, pathJoin(uploadIDDir, partFile), globalFSOSync, offset); err != nil {
 				logger.LogIf(ctx, err)
 				return oi, toObjectErr(err)
 			}

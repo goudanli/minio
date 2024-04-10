@@ -99,7 +99,7 @@ func TestAppendFile(t *testing.T) {
 	f.WriteString("bbbbbbbbbb")
 	f.Close()
 
-	if err = AppendFile(name1, name2, false); err != nil {
+	if err = AppendFile(name1, name2, false, -1); err != nil {
 		t.Error(err)
 	}
 
