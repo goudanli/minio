@@ -34,13 +34,32 @@ func isAllZeros(buffer []byte) bool {
 	return true
 }
 
+func copyData(appendFile *os.File, srcFile *os.File, offset int64) error {
+	buf := make([]byte, (1 << 20))
+	for {
+		n, err := srcFile.Read(buf)
+		if err != nil && err != io.EOF {
+			return err
+		}
+		if n == 0 {
+			break
+		}
+		appendFile.Seek(offset, 0)
+		if _, err := appendFile.Write(buf[:n]); err != nil {
+			return err
+		}
+		offset += int64(n)
+	}
+	return nil
+}
+
 // AppendFile - appends the file "src" to the file "dst"
 func AppendFile(dst string, src string, osync bool, off int64) error {
 	flags := os.O_WRONLY | os.O_APPEND | os.O_CREATE
 	if osync {
 		flags |= os.O_SYNC
 	}
-	appendFile, err := os.OpenFile(dst, flags, 0o666)
+	appendFile, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE, 0o666)
 	if err != nil {
 		return err
 	}
@@ -55,36 +74,16 @@ func AppendFile(dst string, src string, osync bool, off int64) error {
 	if err != nil {
 		return err
 	}
-	if off > 0 && off > fileInfo.Size() {
+	if off > fileInfo.Size() {
 		appendFile.Truncate(off)
-		appendFile.Seek(off, 0)
 	}
-	_, err = io.Copy(appendFile, srcFile)
 
-	// offset := fileInfo.Size()
-	// buf := make([]byte, (1 << 20))
-	// for {
-	// 	n, err := srcFile.Read(buf)
-	// 	if err != nil && err != io.EOF {
-	// 		return err
-	// 	}
-	// 	if n == 0 {
-	// 		break
-	// 	}
+	offset := fileInfo.Size()
+	if off >= 0 {
+		offset = off
+	}
 
-	// 	if !isAllZeros(buf[:n]) {
-	// 		appendFile.Seek(offset, 0)
-	// 		if _, err := appendFile.Write(buf[:n]); err != nil {
-	// 			return err
-	// 		}
-	// 	} else {
-	// 		// ftruncate文件
-	// 		err = appendFile.Truncate(offset + int64(n))
-	// 		if err != nil {
-	// 			return err
-	// 		}
-	// 	}
-	// 	offset += int64(n)
-	// }
+	// _, err = io.Copy(appendFile, srcFile)
+	err = copyData(appendFile, srcFile, offset)
 	return err
 }

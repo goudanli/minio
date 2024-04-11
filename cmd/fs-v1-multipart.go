@@ -161,7 +161,7 @@ func (fs *FSObjects) backgroundAppend(ctx context.Context, bucket, object, uploa
 			// Required part number is not yet uploaded.
 			return
 		}
-		// log.Printf("background offset:%d", offset)
+		// log.Printf("background offset:%d, file:%s", offset, file.filePath)
 		partPath := pathJoin(uploadIDDir, entry)
 		err = xioutil.AppendFile(file.filePath, partPath, globalFSOSync, offset)
 		if err != nil {
@@ -293,7 +293,23 @@ func (fs *FSObjects) NewMultipartUpload(ctx context.Context, bucket, object stri
 		logger.LogIf(ctx, err)
 		return "", err
 	}
-
+	patch, ok := ctx.Value("patch").(bool)
+	if !ok {
+		logger.LogIf(ctx, errInvalidArgument, logger.Application)
+		return "", toObjectErr(errInvalidArgument)
+	}
+	if patch {
+		// 检查object 是否存在
+		objPath := pathJoin(fs.fsPath, bucket, object)
+		_, err := fsStatFile(ctx, objPath)
+		if err != nil {
+			return "", toObjectErr(err, bucket, object)
+		}
+		file := &fsAppendFile{
+			filePath: objPath,
+		}
+		fs.appendFileMap[uploadID] = file
+	}
 	return uploadID, nil
 }
 
