@@ -2657,6 +2657,19 @@ func (api objectAPIHandlers) CopyObjectPartHandler(w http.ResponseWriter, r *htt
 		}
 	}
 
+	offset := int64(-1)
+	if value, ok := r.Form["offset"]; ok {
+		// log.Printf("offset value:%s", value[0])
+		offset, err = strconv.ParseInt(value[0], 10, 64)
+		if err != nil {
+			writeErrorResponse(ctx, w, toAPIError(ctx, err), r.URL)
+			return
+		}
+	}
+
+	// 设置offset
+	ctx = context.WithValue(ctx, "offset", offset)
+
 	srcInfo.PutObjReader = pReader
 	copyObjectPart := objectAPI.CopyObjectPart
 	if api.CacheAPI() != nil {

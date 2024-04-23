@@ -34,6 +34,33 @@ func isAllZeros(buffer []byte) bool {
 	return true
 }
 
+func copyDataWithoutZeroBlock(appendFile *os.File, srcFile *os.File, offset int64) error {
+	buf := make([]byte, (1 << 20))
+	for {
+		n, err := srcFile.Read(buf)
+		if err != nil && err != io.EOF {
+			return err
+		}
+		if n == 0 {
+			break
+		}
+		if !isAllZeros(buf[:n]) {
+			appendFile.Seek(offset, 0)
+			if _, err := appendFile.Write(buf[:n]); err != nil {
+				return err
+			}
+		} else {
+			// ftruncate文件
+			err = appendFile.Truncate(offset + int64(n))
+			if err != nil {
+				return err
+			}
+		}
+		offset += int64(n)
+	}
+	return nil
+}
+
 func copyData(appendFile *os.File, srcFile *os.File, offset int64) error {
 	buf := make([]byte, (1 << 20))
 	for {
@@ -84,6 +111,11 @@ func AppendFile(dst string, src string, osync bool, off int64) error {
 	}
 
 	// _, err = io.Copy(appendFile, srcFile)
-	err = copyData(appendFile, srcFile, offset)
+	if off == -1 {
+		err = copyDataWithoutZeroBlock(appendFile, srcFile, offset)
+	} else {
+		err = copyData(appendFile, srcFile, offset)
+	}
+
 	return err
 }
