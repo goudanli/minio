@@ -108,15 +108,6 @@ func (fs *FSObjects) decodePartFile2(name string) (partNumber int, etag string, 
 func (fs *FSObjects) backgroundAppend(ctx context.Context, bucket, object, uploadID string) {
 	fs.appendFileMapMu.Lock()
 	logger.GetReqInfo(ctx).AppendTags("uploadID", uploadID)
-	// 检测目录是否存在
-	tmpbgAppendsPath := fs.getbgAppendsPath(bucket, object, uploadID)
-	if _, err := fsStat(ctx, tmpbgAppendsPath); os.IsNotExist(err) {
-		err := os.MkdirAll(tmpbgAppendsPath, 0755)
-		if err != nil {
-			logger.LogIf(ctx, err)
-			return
-		}
-	}
 
 	file := fs.appendFileMap[uploadID]
 	if file == nil {
@@ -278,7 +269,12 @@ func (fs *FSObjects) NewMultipartUpload(ctx context.Context, bucket, object stri
 		logger.LogIf(ctx, err)
 		return "", err
 	}
-
+	// 检测目录是否存在
+	tmpbgAppendsPath := fs.getbgAppendsPath(bucket, object, uploadID)
+	if err := os.MkdirAll(tmpbgAppendsPath, 0755); err != nil {
+		logger.LogIf(ctx, err)
+		return "", err
+	}
 	// Initialize fs.json values.
 	fsMeta := newFSMetaV1()
 	fsMeta.Meta = opts.UserDefined
@@ -299,14 +295,16 @@ func (fs *FSObjects) NewMultipartUpload(ctx context.Context, bucket, object stri
 		return "", toObjectErr(errInvalidArgument)
 	}
 	if patch {
-		// 检查object 是否存在
+		// 检查object 是否存在,不存在则创建
 		objPath := pathJoin(fs.fsPath, bucket, object)
-		_, err := fsStatFile(ctx, objPath)
+		patchfile, err := os.OpenFile(objPath, os.O_RDWR|os.O_CREATE, 0666)
 		if err != nil {
 			return "", toObjectErr(err, bucket, object)
 		}
+		defer patchfile.Close()
 		file := &fsAppendFile{
 			filePath: objPath,
+			patch:    true,
 		}
 		fs.appendFileMap[uploadID] = file
 	}
@@ -890,11 +888,15 @@ func (fs *FSObjects) AbortMultipartUpload(ctx context.Context, bucket, object, u
 		return toObjectErr(err, bucket)
 	}
 
+	fs.backgroundAppend(ctx, bucket, object, uploadID)
+
 	fs.appendFileMapMu.Lock()
 	// Remove file in tmp folder
 	file := fs.appendFileMap[uploadID]
 	if file != nil {
-		fsRemoveFile(ctx, file.filePath)
+		if !file.patch {
+			fsRemoveFile(ctx, file.filePath)
+		}
 	}
 	delete(fs.appendFileMap, uploadID)
 	fs.appendFileMapMu.Unlock()
@@ -1009,7 +1011,7 @@ func (fs *FSObjects) cleanupStaleUploads(ctx context.Context) {
 					// Remove uploadID from the append file map and its corresponding temporary file
 					fs.appendFileMapMu.Lock()
 					bgAppend, ok := fs.appendFileMap[uploadID]
-					if ok {
+					if ok && !bgAppend.patch {
 						_ = fsRemoveFile(ctx, bgAppend.filePath)
 						delete(fs.appendFileMap, uploadID)
 					}

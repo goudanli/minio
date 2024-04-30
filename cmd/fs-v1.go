@@ -87,6 +87,7 @@ type fsAppendFile struct {
 	sync.Mutex
 	parts    []PartInfo // List of parts appended.
 	filePath string     // Absolute path of the file in the temp location.
+	patch    bool
 }
 
 // Initializes meta volume on all the fs path.
