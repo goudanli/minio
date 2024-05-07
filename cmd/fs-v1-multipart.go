@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -31,6 +32,7 @@ import (
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
+	"github.com/minio/minio/internal/hash"
 	xioutil "github.com/minio/minio/internal/ioutil"
 	"github.com/minio/minio/internal/logger"
 	"github.com/minio/pkg/trie"
@@ -167,6 +169,41 @@ func (fs *FSObjects) backgroundAppend(ctx context.Context, bucket, object, uploa
 	}
 }
 
+func (fs *FSObjects) writeData(appendFile *os.File, data *hash.Reader, offset int64) error {
+	buf := make([]byte, (1 << 20))
+	for {
+		n, err := data.Read(buf)
+		if err != nil && err != io.EOF {
+			return err
+		}
+		if n == 0 {
+			break
+		}
+		appendFile.Seek(offset, 0)
+		if _, err := appendFile.Write(buf[:n]); err != nil {
+			return err
+		}
+		offset += int64(n)
+	}
+	return nil
+}
+
+func (fs *FSObjects) patchPart(partID int, etag string, file *fsAppendFile, data *hash.Reader, offset int64) (pi PartInfo, e error) {
+	file.Lock()
+	defer file.Unlock()
+	if err := fs.writeData(file.handler, data, offset); err != nil {
+		return pi, toObjectErr(errInvalidArgument)
+	}
+
+	return PartInfo{
+		PartNumber:   partID,
+		LastModified: time.Now(),
+		ETag:         etag,
+		Size:         data.Size(),
+		ActualSize:   data.ActualSize(),
+	}, nil
+}
+
 // ListMultipartUploads - lists all the uploadIDs for the specified object.
 // We do not support prefix based listing.
 func (fs *FSObjects) ListMultipartUploads(ctx context.Context, bucket, object, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (result ListMultipartsInfo, e error) {
@@ -301,10 +338,11 @@ func (fs *FSObjects) NewMultipartUpload(ctx context.Context, bucket, object stri
 		if err != nil {
 			return "", toObjectErr(err, bucket, object)
 		}
-		defer patchfile.Close()
+
 		file := &fsAppendFile{
 			filePath: objPath,
 			patch:    true,
+			handler:  patchfile,
 		}
 		fs.appendFileMap[uploadID] = file
 	}
@@ -370,6 +408,17 @@ func (fs *FSObjects) PutObjectPart(ctx context.Context, bucket, object, uploadID
 		return pi, toObjectErr(errInvalidArgument)
 	}
 
+	etag := r.MD5CurrentHexString()
+
+	if etag == "" {
+		etag = GenETag()
+	}
+
+	file := fs.appendFileMap[uploadID]
+	if file != nil && file.patch {
+		return fs.patchPart(partID, etag, file, data, offset)
+	}
+
 	uploadIDDir := fs.getUploadIDDir(bucket, object, uploadID)
 
 	// Just check if the uploadID exists to avoid copy if it doesn't.
@@ -397,12 +446,6 @@ func (fs *FSObjects) PutObjectPart(ctx context.Context, bucket, object, uploadID
 	// bytes than specified in request header.
 	if bytesWritten < data.Size() {
 		return pi, IncompleteBody{Bucket: bucket, Object: object}
-	}
-
-	etag := r.MD5CurrentHexString()
-
-	if etag == "" {
-		etag = GenETag()
 	}
 
 	// partPath := pathJoin(uploadIDDir, fs.encodePartFile(partID, etag, data.ActualSize()))
@@ -621,6 +664,18 @@ func (fs *FSObjects) CompleteMultipartUpload(ctx context.Context, bucket string,
 		return oi, toObjectErr(err, bucket)
 	}
 	defer NSUpdated(bucket, object)
+
+	{ //如果是patch 直接AbortMultipartUpload
+		file := fs.appendFileMap[uploadID]
+		if file != nil && file.patch {
+			file.handler.Close()
+			err := fs.AbortMultipartUpload(ctx, bucket, object, uploadID, opts)
+			if err != nil {
+				return oi, err
+			}
+			return oi, nil
+		}
+	}
 
 	uploadIDDir := fs.getUploadIDDir(bucket, object, uploadID)
 	// Just check if the uploadID exists to avoid copy if it doesn't.
@@ -896,6 +951,8 @@ func (fs *FSObjects) AbortMultipartUpload(ctx context.Context, bucket, object, u
 	if file != nil {
 		if !file.patch {
 			fsRemoveFile(ctx, file.filePath)
+		} else {
+			file.handler.Close()
 		}
 	}
 	delete(fs.appendFileMap, uploadID)
