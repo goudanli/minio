@@ -33,6 +33,7 @@ import (
 	"github.com/minio/minio/internal/handlers"
 	"github.com/minio/minio/internal/kms"
 	"github.com/rs/dnscache"
+	"gorm.io/gorm"
 
 	"github.com/dustin/go-humanize"
 	"github.com/minio/minio/internal/auth"
@@ -48,6 +49,7 @@ import (
 	xhttp "github.com/minio/minio/internal/http"
 	etcd "go.etcd.io/etcd/client/v3"
 
+	"github.com/minio/minio/internal/database"
 	"github.com/minio/minio/internal/event"
 	"github.com/minio/minio/internal/pubsub"
 	"github.com/minio/pkg/certs"
@@ -355,7 +357,8 @@ var (
 	globalNetPerfRX              netPerfRX
 	globalObjectPerfBucket       = "minio-perf-test-tmp-bucket"
 	globalObjectPerfUserMetadata = "X-Amz-Meta-Minio-Object-Perf" // Clients can set this to bypass S3 API service freeze. Used by object pref tests.
-
+	globalDBConfig               database.DataBase
+	globalDB                     *gorm.DB
 	// Add new variable global values here.
 )
 

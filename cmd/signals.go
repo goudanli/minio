@@ -20,6 +20,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -68,6 +69,11 @@ func handleSignals() {
 
 		if srv := newConsoleServerFn(); srv != nil {
 			logger.LogIf(context.Background(), srv.Shutdown())
+		}
+		if globalDB != nil {
+			log.Printf("close database connection")
+			sqlDB, _ := globalDB.DB()
+			sqlDB.Close()
 		}
 
 		return (err == nil && oerr == nil)

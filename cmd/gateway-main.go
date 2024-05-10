@@ -32,6 +32,7 @@ import (
 	"github.com/minio/cli"
 	"github.com/minio/madmin-go"
 	"github.com/minio/minio/internal/color"
+	"github.com/minio/minio/internal/database"
 	xhttp "github.com/minio/minio/internal/http"
 	"github.com/minio/minio/internal/logger"
 	"github.com/minio/pkg/certs"
@@ -231,6 +232,8 @@ func StartGateway(ctx *cli.Context, gw Gateway) {
 	globalServerConfig = srvCfg
 	globalServerConfigMu.Unlock()
 
+	globalDB = database.Gorm(&globalDBConfig)
+
 	// Initialize router. `SkipClean(true)` stops gorilla/mux from
 	// normalizing URL path minio/minio#3256
 	// avoid URL path encoding minio/minio#8950
@@ -248,6 +251,9 @@ func StartGateway(ctx *cli.Context, gw Gateway) {
 
 	// Add server metrics router
 	registerMetricsRouter(router)
+
+	// add adm API router
+	registerADMAPIRouter(router)
 
 	// Add API router.
 	registerAPIRouter(router)

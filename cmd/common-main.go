@@ -868,6 +868,19 @@ func handleCommonEnvVars() {
 		}
 		GlobalKMS = KMS
 	}
+
+	if env.IsSet(config.EnvDatabasePath) {
+		path := env.Get(config.EnvDatabasePath, "")
+		logger.Info("databse path: %s", path)
+		globalDBConfig.Mysql.Path = path
+		globalDBConfig.Mysql.Dbname = "adm_dbmodel"
+		globalDBConfig.Mysql.Username = "adm_admin"
+		globalDBConfig.Mysql.Password = "dSadm@34e%"
+		globalDBConfig.Mysql.Port = "13507"
+		globalDBConfig.Mysql.Config = "charset=utf8mb4"
+	} else {
+		logger.Fatal(errors.New("DatabasePath Env not set"), "Unable to start MinIO")
+	}
 }
 
 func getTLSConfig() (x509Certs []*x509.Certificate, manager *certs.Manager, secureConn bool, err error) {

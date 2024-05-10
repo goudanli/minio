@@ -389,6 +389,8 @@ const (
 	ErrAccountNotEligible
 	ErrAdminServiceAccountNotFound
 	ErrPostPolicyConditionInvalidFormat
+	// adm backup
+	ErrInvalidUpdateBackupStatusParams
 )
 
 type errorCodeMap map[APIErrorCode]APIError
@@ -1855,6 +1857,11 @@ var errorCodes = errorCodeMap{
 		Code:           "PostPolicyInvalidKeyName",
 		Description:    "Invalid according to Policy: Policy Condition failed",
 		HTTPStatusCode: http.StatusForbidden,
+	},
+	ErrInvalidUpdateBackupStatusParams: {
+		Code:           "InvalidArgument",
+		Description:    "requires the backupId,status parameters.",
+		HTTPStatusCode: http.StatusBadRequest,
 	},
 	// Add your error structure here.
 }
