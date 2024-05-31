@@ -2,7 +2,7 @@
  * @Author: xiao.wei xiaow@suninfo.com
  * @Date: 2024-05-07 17:01:41
  * @LastEditors: xiao.wei xiaow@suninfo.com
- * @LastEditTime: 2024-05-08 15:07:01
+ * @LastEditTime: 2024-05-16 16:28:01
  * @FilePath: /minio/cmd/adm-router.go
  * @Description:
  *
@@ -13,6 +13,7 @@ package cmd
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/klauspost/compress/gzhttp"
@@ -27,6 +28,7 @@ const (
 // registerHealthCheckRouter - add handler functions for liveness and readiness routes.
 func registerADMAPIRouter(router *mux.Router) {
 	// Healthcheck router
+	mapTimer = make(map[string]*time.Timer)
 	admApiRouter := router.PathPrefix(SlashSeparator).Subrouter()
 
 	// apiRouter := router.PathPrefix(SlashSeparator).Subrouter()
@@ -35,7 +37,12 @@ func registerADMAPIRouter(router *mux.Router) {
 		// Static params, so this is very unlikely.
 		logger.Fatal(err, "Unable to initialize server")
 	}
-	//update adm backup job
-	admApiRouter.Methods(http.MethodPost).Path("/updatebackupstatus").HandlerFunc(gz(httpTraceAll(UpdateBackupStatusHandler)))
-	admApiRouter.Methods(http.MethodPost).Path("/updaterestorestatus").HandlerFunc(gz(httpTraceAll(UpdateRestoreStatusHandler)))
+	// 更新状态，内部会移除心跳timer
+	admApiRouter.Methods(http.MethodPost).Path("/updateRecordStatus").HandlerFunc(gz(httpTraceAll(UpdateRecordStatusHandler)))
+	// 查看状态
+	admApiRouter.Methods(http.MethodGet).Path("/progress").HandlerFunc(gz(httpTraceAll(ProgressHandler)))
+	// 添加心跳timer或更新
+	admApiRouter.Methods(http.MethodPost).Path("/addHeartBeatTimer").HandlerFunc(gz(httpTraceAll(AddHeartBeatTimerHandler)))
+	// 更新心跳timer
+	admApiRouter.Methods(http.MethodPost).Path("/updateHeartBeatTimer").HandlerFunc(gz(httpTraceAll(UpdateHeartBeatTimerHandler)))
 }

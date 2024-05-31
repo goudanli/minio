@@ -879,7 +879,7 @@ func handleCommonEnvVars() {
 		globalDBConfig.Mysql.Port = "13507"
 		globalDBConfig.Mysql.Config = "charset=utf8mb4"
 	} else {
-		logger.Fatal(errors.New("DatabasePath Env not set"), "Unable to start MinIO")
+		logger.Fatal(errors.New("DATABASE_PATH Env not set"), "Unable to start MinIO")
 	}
 }
 
