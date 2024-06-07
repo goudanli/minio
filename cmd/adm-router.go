@@ -2,7 +2,7 @@
  * @Author: xiao.wei xiaow@suninfo.com
  * @Date: 2024-05-07 17:01:41
  * @LastEditors: xiao.wei xiaow@suninfo.com
- * @LastEditTime: 2024-05-16 16:28:01
+ * @LastEditTime: 2024-06-03 15:07:23
  * @FilePath: /minio/cmd/adm-router.go
  * @Description:
  *
@@ -45,4 +45,6 @@ func registerADMAPIRouter(router *mux.Router) {
 	admApiRouter.Methods(http.MethodPost).Path("/addHeartBeatTimer").HandlerFunc(gz(httpTraceAll(AddHeartBeatTimerHandler)))
 	// 更新心跳timer
 	admApiRouter.Methods(http.MethodPost).Path("/updateHeartBeatTimer").HandlerFunc(gz(httpTraceAll(UpdateHeartBeatTimerHandler)))
+
+	admApiRouter.Methods(http.MethodPost).Path("/updateStatistics").HandlerFunc(gz(httpTraceAll(UpdateStatisticsHandler)))
 }

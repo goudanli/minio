@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"sync"
@@ -170,7 +171,7 @@ func ProgressHandler(w http.ResponseWriter, r *http.Request) {
 	defer logger.AuditLog(ctx, w, r, mustGetClaimsFromToken(r))
 	snapid := r.Form.Get("snapid")
 	querytype := r.Form.Get("querytype")
-	fmt.Printf("snapid:%s,querytype:%s\n", snapid, querytype)
+	// fmt.Printf("snapid:%s,querytype:%s\n", snapid, querytype)
 	// halfphase := r.Form.Get("halfphase")
 	var result ProgressResult
 	sql := ""
@@ -342,6 +343,111 @@ func UpdateHeartBeatTimerHandler(w http.ResponseWriter, r *http.Request) {
 		} else {
 			result.OK = 1
 			result.ErrMsg = "Timer not found"
+		}
+		break
+	}
+
+	jsonBytes, _ := json.Marshal(result)
+	// writeSuccessResponseJSON(w, jsonBytes)
+	if result.OK == 0 {
+		writeResponse(w, http.StatusOK, jsonBytes, mimeJSON)
+	} else {
+		writeResponse(w, http.StatusBadRequest, jsonBytes, mimeJSON)
+	}
+}
+
+func formatBytes(bytes uint64) string {
+	if bytes < 1024 {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	exp := math.Floor(math.Log(float64(bytes)) / math.Log(1024))
+	units := []string{"KB", "MB", "GB", "TB", "PB", "EB"}
+	value := float64(bytes) / math.Pow(1024, exp)
+	return fmt.Sprintf("%.2f %s", value, units[int(exp)-1])
+}
+
+func saveStatistics(recordId string, BusinessType int, percent int, transferred uint64, speed uint64) bool {
+	logical_used_str := formatBytes(transferred)
+	speed_str := formatBytes(speed) + "/s"
+	if BusinessType == 0 || BusinessType == 1 { //备份
+		globalDB.Exec("UPDATE t_adm_general_backup_snap SET percent=?,logical_used=?,logical_used_str=?,json_parameter=JSON_SET(json_parameter, '$.rate', ?) WHERE general_backup_snap_id=?", percent, transferred, logical_used_str, speed_str, recordId)
+		return true
+	} else if BusinessType == 2 { //恢复
+		globalDB.Exec("UPDATE t_adm_general_backup_recover SET percent=?,json_parameters=JSON_SET(json_parameters, '$.rate', ?)WHERE general_backup_recover_id=?", percent, speed_str, recordId)
+		return true
+	} else if BusinessType == 3 {
+		globalDB.Exec("UPDATE t_adm_general_backup_check_list check_percent=? WHERE general_backup_check_list_id=?", percent, recordId)
+		return true
+	} else if BusinessType == 4 { //CDM restore
+		globalDB.Exec("UPDATE t_adm_vdb SET percent=?,logicalused=?,logicalusedstr=?,json_parameter=JSON_SET(json_parameter, '$.rate', ?) WHERE vdb_id=?", percent, transferred, logical_used_str, speed_str, recordId)
+		return true
+	} else if BusinessType == 6 || BusinessType == 8 {
+		globalDB.Exec("UPDATE t_adm_arch_list SET percent=? WHERE arch_list_id=?", percent, recordId)
+		return true
+	} else if BusinessType == 7 || BusinessType == 9 {
+		globalDB.Exec("UPDATE t_adm_arch_recover SET percent=?,json_parameter=JSON_SET(json_parameter, '$.rate', ?) WHERE arch_recover_id=?", percent, speed_str, recordId)
+		return true
+	}
+	fmt.Printf("unsupport businessType\n")
+	return false
+}
+
+func UpdateStatisticsHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := newContext(r, w, "UpdateStatisticsHandler")
+	defer logger.AuditLog(ctx, w, r, mustGetClaimsFromToken(r))
+	recordId := r.Form.Get("recordId")
+	businessType := r.Form.Get("businessType")
+	total := r.Form.Get("total")
+	backuped := r.Form.Get("backuped")
+	transferred := r.Form.Get("transferred")
+	speed := r.Form.Get("speed")
+	var result Result
+	for {
+		if recordId == "" || businessType == "" {
+			result.OK = 1
+			result.ErrMsg = "requires the recordId,businessType parameters"
+			break
+		}
+		BusinessType, err := strconv.Atoi(businessType)
+		if err != nil {
+			result.OK = 1
+			result.ErrMsg = err.Error()
+			break
+		}
+		Total, err := strconv.ParseUint(total, 10, 64)
+		if err != nil {
+			result.OK = 1
+			result.ErrMsg = err.Error()
+			break
+		}
+		Backuped, err := strconv.ParseUint(backuped, 10, 64)
+		if err != nil {
+			result.OK = 1
+			result.ErrMsg = err.Error()
+			break
+		}
+		Transferred, err := strconv.ParseUint(transferred, 10, 64)
+		if err != nil {
+			result.OK = 1
+			result.ErrMsg = err.Error()
+			break
+		}
+		Speed, err := strconv.ParseUint(speed, 10, 64)
+		if err != nil {
+			result.OK = 1
+			result.ErrMsg = err.Error()
+			break
+		}
+		// fmt.Printf("recordId:%s,businessType:%s,total:%s,backuped:%s,transferred:%s,speed:%s\n", recordId, businessType, formatBytes(Total), backuped, formatBytes(Transferred), formatBytes(Speed)+"/s")
+		percent := 0
+		if Total != 0 {
+			percent = (int)(Backuped * 100 / Total)
+		}
+		// 更新进程id到数据库
+		if saveStatistics(recordId, BusinessType, percent, Transferred, Speed) {
+			result.OK = 0
+		} else {
+			result.OK = 1
 		}
 		break
 	}
