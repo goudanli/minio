@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -170,28 +169,16 @@ func (fs *FSObjects) backgroundAppend(ctx context.Context, bucket, object, uploa
 }
 
 func (fs *FSObjects) writeData(appendFile *os.File, data *hash.Reader, offset int64) error {
-	buf := make([]byte, (1 << 20))
-	for {
-		n, err := data.Read(buf)
-		if err != nil && err != io.EOF {
-			return err
-		}
-		if n == 0 {
-			break
-		}
-		appendFile.Seek(offset, 0)
-		if _, err := appendFile.Write(buf[:n]); err != nil {
-			return err
-		}
-		offset += int64(n)
-	}
-	return nil
+	appendFile.Seek(offset, 0)
+	_, err := xioutil.Copy(appendFile, data)
+	return err
 }
 
 func (fs *FSObjects) patchPart(partID int, etag string, file *fsAppendFile, data *hash.Reader, offset int64) (pi PartInfo, e error) {
 	file.Lock()
 	defer file.Unlock()
 	if err := fs.writeData(file.handler, data, offset); err != nil {
+		fmt.Printf("writeData err:%s\n", err.Error())
 		return pi, toObjectErr(errInvalidArgument)
 	}
 
@@ -328,7 +315,7 @@ func (fs *FSObjects) NewMultipartUpload(ctx context.Context, bucket, object stri
 	}
 	patch, ok := ctx.Value("patch").(bool)
 	if !ok {
-		logger.LogIf(ctx, errInvalidArgument, logger.Application)
+		fmt.Printf("patch param err\n")
 		return "", toObjectErr(errInvalidArgument)
 	}
 	if patch {
@@ -399,12 +386,12 @@ func (fs *FSObjects) PutObjectPart(ctx context.Context, bucket, object, uploadID
 
 	// Validate input data size and it can never be less than -1.
 	if data.Size() < -1 {
-		logger.LogIf(ctx, errInvalidArgument, logger.Application)
+		fmt.Printf("data size err\n")
 		return pi, toObjectErr(errInvalidArgument)
 	}
 	offset, ok := ctx.Value("offset").(int64)
 	if !ok {
-		logger.LogIf(ctx, errInvalidArgument, logger.Application)
+		fmt.Printf("offset err\n")
 		return pi, toObjectErr(errInvalidArgument)
 	}
 
