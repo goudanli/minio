@@ -25,7 +25,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -2256,7 +2255,6 @@ func (api objectAPIHandlers) NewMultipartUploadHandler(w http.ResponseWriter, r 
 
 	patch := false
 	if value, ok := r.Header["Object-Patch"]; ok {
-		log.Printf("patch value:%s", value[0])
 		patch, err = strconv.ParseBool(value[0])
 		if err != nil {
 			writeErrorResponse(ctx, w, toAPIError(ctx, err), r.URL)
