@@ -239,7 +239,7 @@ func AddHeartBeatTimerHandler(w http.ResponseWriter, r *http.Request) {
 			result.ErrMsg = err.Error()
 			break
 		}
-		duration := 5 * time.Minute
+		duration := 10 * time.Minute
 		key := businessType + "_" + recordId
 
 		if timer, ok := mapTimer[key]; ok {
