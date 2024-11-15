@@ -174,7 +174,7 @@ func (fs *FSObjects) writeData(appendFile *os.File, data *hash.Reader, offset in
 	return err
 }
 
-func (fs *FSObjects) patchPart(partID int, etag string, file *fsAppendFile, data *hash.Reader, offset int64) (pi PartInfo, e error) {
+func (fs *FSObjects) patchPart(partID int, r *PutObjReader, file *fsAppendFile, data *hash.Reader, offset int64) (pi PartInfo, e error) {
 	file.Lock()
 	defer file.Unlock()
 	if err := fs.writeData(file.handler, data, offset); err != nil {
@@ -185,7 +185,7 @@ func (fs *FSObjects) patchPart(partID int, etag string, file *fsAppendFile, data
 	return PartInfo{
 		PartNumber:   partID,
 		LastModified: time.Now(),
-		ETag:         etag,
+		ETag:         "",
 		Size:         data.Size(),
 		ActualSize:   data.ActualSize(),
 	}, nil
@@ -395,15 +395,9 @@ func (fs *FSObjects) PutObjectPart(ctx context.Context, bucket, object, uploadID
 		return pi, toObjectErr(errInvalidArgument)
 	}
 
-	etag := r.MD5CurrentHexString()
-
-	if etag == "" {
-		etag = GenETag()
-	}
-
 	file := fs.appendFileMap[uploadID]
 	if file != nil && file.patch {
-		return fs.patchPart(partID, etag, file, data, offset)
+		return fs.patchPart(partID, r, file, data, offset)
 	}
 
 	uploadIDDir := fs.getUploadIDDir(bucket, object, uploadID)
@@ -435,6 +429,11 @@ func (fs *FSObjects) PutObjectPart(ctx context.Context, bucket, object, uploadID
 		return pi, IncompleteBody{Bucket: bucket, Object: object}
 	}
 
+	etag := r.MD5CurrentHexString()
+
+	if etag == "" {
+		etag = GenETag()
+	}
 	// partPath := pathJoin(uploadIDDir, fs.encodePartFile(partID, etag, data.ActualSize()))
 	partPath := pathJoin(uploadIDDir, fs.encodePartFile2(partID, etag, data.ActualSize(), offset))
 
@@ -547,7 +546,7 @@ func (fs *FSObjects) ListObjectParts(ctx context.Context, bucket, object, upload
 			continue
 		}
 
-		partNumber, currentEtag, actualSize, derr := fs.decodePartFile(entry)
+		partNumber, currentEtag, actualSize, _, derr := fs.decodePartFile2(entry)
 		if derr != nil {
 			// Skip part files whose name don't match expected format. These could be backend filesystem specific files.
 			continue
