@@ -331,7 +331,9 @@ func (fs *FSObjects) NewMultipartUpload(ctx context.Context, bucket, object stri
 			patch:    true,
 			handler:  patchfile,
 		}
+		fs.appendFileMapMu.Lock()
 		fs.appendFileMap[uploadID] = file
+		fs.appendFileMapMu.Unlock()
 	}
 	return uploadID, nil
 }
