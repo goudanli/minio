@@ -2,8 +2,8 @@
  * @Author: xiao.wei xiaow@suninfo.com
  * @Date: 2024-02-20 16:20:40
  * @LastEditors: xiao.wei xiaow@suninfo.com
- * @LastEditTime: 2024-08-03 10:35:24
- * @FilePath: /s3filebackup/main.go
+ * @LastEditTime: 2024-12-31 14:51:09
+ * @FilePath: /adm_s3gateway/s3filebackup/main.go
  * @Description:
  *
  * Copyright (c) 2024 by suninfo, All Rights Reserved.
@@ -14,12 +14,17 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"strconv"
 	"time"
 )
 
 func main() {
+	go func() {
+		log.Println(http.ListenAndServe(":6060", nil)) // 启动 pprof HTTP 服务器
+	}()
 	result := 0
 	start := time.Now()
 	serverPtr := flag.String("server", "", "请输入CDM Ip地址")
