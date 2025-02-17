@@ -370,7 +370,7 @@ func saveStatistics(recordId string, BusinessType int, percent int, transferred 
 	logical_used_str := formatBytes(transferred)
 	speed_str := formatBytes(speed) + "/s"
 	if BusinessType == 0 || BusinessType == 1 { //备份
-		globalDB.Exec("UPDATE t_adm_general_backup_snap SET percent=?,logical_used=?,logical_used_str=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?) WHERE general_backup_snap_id=?", percent, transferred, logical_used_str, speed_str, recordId)
+		globalDB.Exec("UPDATE t_adm_general_backup_snap SET percent=?,used=?,used_str=?,logical_used=?,logical_used_str=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?) WHERE general_backup_snap_id=?", percent, transferred, logical_used_str, transferred, logical_used_str, speed_str, recordId)
 		return true
 	} else if BusinessType == 2 { //恢复
 		globalDB.Exec("UPDATE t_adm_general_backup_recover SET percent=?,json_parameters=JSON_SET(json_parameters, '$.average_speed', ?)WHERE general_backup_recover_id=?", percent, speed_str, recordId)
