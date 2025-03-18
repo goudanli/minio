@@ -58,23 +58,32 @@ type ProgressResult struct {
 	Result
 	Completed    int    `json:"completed"`
 	Succeed      int    `json:"succeed"`
-	SnapId       int    `gorm:"column:snapid" json:"snapid"`
+	SnapID       int    `gorm:"column:snapid" json:"snapid"`
 	Status       int    `gorm:"column:status" json:"status"`
 	Rate         string `gorm:"column:compress_ratio_str" json:"rate"`
 	RealData     string `gorm:"column:logical_used_str" json:"real_data"`
 	TransferData string `gorm:"column:used_str" json:"transfer_data"`
 }
 
-func saveRecordStatus(recordStatus int, recordId string, BusinessType int) bool {
-	fmt.Printf("save record(%s) status:%d\n", recordId, recordStatus)
+func saveRecordStatus(recordStatus int, recordID string, BusinessType int, timepoint string) bool {
+	fmt.Printf("save record(%s) status:%d\n", recordID, recordStatus)
 	if BusinessType == 0 || BusinessType == 1 { //备份
-		globalDB.Exec("UPDATE t_adm_general_backup_snap SET json_parameter=JSON_SET(json_parameter, '$.snap_status', ?) WHERE general_backup_snap_id=?", recordStatus, recordId)
+		if timepoint != "" {
+			TimePoint, err := strconv.ParseInt(timepoint, 10, 64)
+			if err != nil {
+				fmt.Println("timepoint error:", err)
+				return false
+			}
+			globalDB.Exec("UPDATE t_adm_general_backup_snap SET json_parameter=JSON_SET(json_parameter, '$.snap_status', ?), backup_time=? WHERE general_backup_snap_id=?", recordStatus, TimePoint, recordID)
+		} else {
+			globalDB.Exec("UPDATE t_adm_general_backup_snap SET json_parameter=JSON_SET(json_parameter, '$.snap_status', ?) WHERE general_backup_snap_id=?", recordStatus, recordID)
+		}
 		return true
 	} else if BusinessType == 2 { //恢复
-		globalDB.Exec("UPDATE t_adm_general_backup_recover SET json_parameters=JSON_SET(json_parameters, '$.recover_status', ?) WHERE general_backup_recover_id=?", recordStatus, recordId)
+		globalDB.Exec("UPDATE t_adm_general_backup_recover SET json_parameters=JSON_SET(json_parameters, '$.recover_status', ?) WHERE general_backup_recover_id=?", recordStatus, recordID)
 		return true
 	} else if BusinessType == 3 {
-		globalDB.Exec("UPDATE t_adm_general_backup_check_list SET json_parameter=JSON_SET(json_parameter, '$.check_status', ?) WHERE general_backup_check_list_id=?", recordStatus, recordId)
+		globalDB.Exec("UPDATE t_adm_general_backup_check_list SET json_parameter=JSON_SET(json_parameter, '$.check_status', ?) WHERE general_backup_check_list_id=?", recordStatus, recordID)
 		return true
 	} else if BusinessType == 4 { //CDM restore
 		if recordStatus == 3 { //终止
@@ -83,13 +92,13 @@ func saveRecordStatus(recordStatus int, recordId string, BusinessType int) bool 
 		if recordStatus == 2 { //失败
 			recordStatus = 3
 		}
-		globalDB.Exec("UPDATE t_adm_vdb SET json_parameter=JSON_SET(json_parameter, '$.vdbstatus', ?) WHERE vdb_id=?", recordStatus, recordId)
+		globalDB.Exec("UPDATE t_adm_vdb SET json_parameter=JSON_SET(json_parameter, '$.vdbstatus', ?) WHERE vdb_id=?", recordStatus, recordID)
 		return true
 	} else if BusinessType == 6 || BusinessType == 8 {
-		globalDB.Exec("UPDATE t_adm_arch_list SET json_parameter=JSON_SET(json_parameter, '$.arch_status', ?) WHERE arch_list_id=?", recordStatus, recordId)
+		globalDB.Exec("UPDATE t_adm_arch_list SET json_parameter=JSON_SET(json_parameter, '$.arch_status', ?) WHERE arch_list_id=?", recordStatus, recordID)
 		return true
 	} else if BusinessType == 7 || BusinessType == 9 {
-		globalDB.Exec("UPDATE t_adm_arch_recover SET json_parameter=JSON_SET(json_parameter, '$.recover_status', ?) WHERE arch_recover_id=?", recordStatus, recordId)
+		globalDB.Exec("UPDATE t_adm_arch_recover SET json_parameter=JSON_SET(json_parameter, '$.recover_status', ?) WHERE arch_recover_id=?", recordStatus, recordID)
 		return true
 	}
 	fmt.Printf("unsupport businessType\n")
@@ -100,13 +109,14 @@ func saveRecordStatus(recordStatus int, recordId string, BusinessType int) bool 
 func UpdateRecordStatusHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := newContext(r, w, "UpdateRecordStatus")
 	defer logger.AuditLog(ctx, w, r, mustGetClaimsFromToken(r))
-	recordId := r.Form.Get("recordId")
+	recordID := r.Form.Get("recordId")
 	status := r.Form.Get("status")
 	businessType := r.Form.Get("businessType")
-	log.Printf("recordId:%s,status:%s,businessType:%s", recordId, status, businessType)
+	timepoint := r.Form.Get("timepoint")
+	log.Printf("recordId:%s,status:%s,businessType:%s,timepoint:%s", recordID, status, businessType, timepoint)
 	var result UpdateRecordStatusResult
 	for {
-		if recordId == "" || status == "" || businessType == "" {
+		if recordID == "" || status == "" || businessType == "" {
 			result.OK = 1
 			result.ErrMsg = "requires the recordId,status,businessType parameters"
 			break
@@ -123,11 +133,11 @@ func UpdateRecordStatusHandler(w http.ResponseWriter, r *http.Request) {
 			result.ErrMsg = err.Error()
 			break
 		}
-		if saveRecordStatus(recordStatus, recordId, BusinessType) {
+		if saveRecordStatus(recordStatus, recordID, BusinessType, timepoint) {
 			// 移除定时器
 			mutex.Lock()
 			defer mutex.Unlock()
-			key := businessType + "_" + recordId
+			key := businessType + "_" + recordID
 			timer, ok := mapTimer[key]
 			if ok {
 				timer.Stop()
@@ -149,7 +159,6 @@ func UpdateRecordStatusHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		writeResponse(w, http.StatusBadRequest, jsonBytes, mimeJSON)
 	}
-	return
 }
 
 func checkStatus(result *ProgressResult) {
@@ -208,7 +217,7 @@ func ProgressHandler(w http.ResponseWriter, r *http.Request) {
 			break
 		default:
 			result.OK = 23
-			result.ErrMsg = fmt.Sprintf("querytype error")
+			result.ErrMsg = "querytype error"
 		}
 		if sql != "" {
 			if db := globalDB.Raw(sql).First(&result); db.Error == nil {
@@ -228,9 +237,9 @@ func ProgressHandler(w http.ResponseWriter, r *http.Request) {
 func AddHeartBeatTimerHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := newContext(r, w, "AddHeartBeatTimer")
 	defer logger.AuditLog(ctx, w, r, mustGetClaimsFromToken(r))
-	recordId := r.Form.Get("recordId")
+	recordID := r.Form.Get("recordId")
 	businessType := r.Form.Get("businessType")
-	fmt.Printf("recordId:%s,businessType:%s\n", recordId, businessType)
+	fmt.Printf("recordId:%s,businessType:%s\n", recordID, businessType)
 	var result Result
 	for {
 		BusinessType, err := strconv.Atoi(businessType)
@@ -240,7 +249,7 @@ func AddHeartBeatTimerHandler(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		duration := 10 * time.Minute
-		key := businessType + "_" + recordId
+		key := businessType + "_" + recordID
 
 		if timer, ok := mapTimer[key]; ok {
 			timer.Reset(duration)
@@ -250,7 +259,7 @@ func AddHeartBeatTimerHandler(w http.ResponseWriter, r *http.Request) {
 			timer := time.AfterFunc(duration, func() {
 				fmt.Println("更新状态为失败:", key, time.Now())
 				//	更新状态为失败
-				saveRecordStatus(2, recordId, BusinessType)
+				saveRecordStatus(2, recordID, BusinessType, "")
 				mutex.Lock()
 				defer mutex.Unlock()
 				delete(mapTimer, key)
@@ -273,24 +282,24 @@ func AddHeartBeatTimerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func saveProcessId(procId int, recordId string, BusinessType int) bool {
+func saveProcessID(procID int, recordID string, BusinessType int) bool {
 	if BusinessType == 0 || BusinessType == 1 { //备份
-		globalDB.Exec("UPDATE t_adm_general_backup_snap SET json_parameter=JSON_SET(json_parameter, '$.processId', ?) WHERE general_backup_snap_id=?", procId, recordId)
+		globalDB.Exec("UPDATE t_adm_general_backup_snap SET json_parameter=JSON_SET(json_parameter, '$.processId', ?) WHERE general_backup_snap_id=?", procID, recordID)
 		return true
 	} else if BusinessType == 2 { //恢复
-		globalDB.Exec("UPDATE t_adm_general_backup_recover SET json_parameters=JSON_SET(json_parameters, '$.processId', ?) WHERE general_backup_recover_id=?", procId, recordId)
+		globalDB.Exec("UPDATE t_adm_general_backup_recover SET json_parameters=JSON_SET(json_parameters, '$.processId', ?) WHERE general_backup_recover_id=?", procID, recordID)
 		return true
 	} else if BusinessType == 3 {
-		globalDB.Exec("UPDATE t_adm_general_backup_check_list SET json_parameter=JSON_SET(json_parameter, '$.processId', ?) WHERE general_backup_check_list_id=?", procId, recordId)
+		globalDB.Exec("UPDATE t_adm_general_backup_check_list SET json_parameter=JSON_SET(json_parameter, '$.processId', ?) WHERE general_backup_check_list_id=?", procID, recordID)
 		return true
 	} else if BusinessType == 4 { //CDM restore
-		globalDB.Exec("UPDATE t_adm_vdb SET json_parameter=JSON_SET(json_parameter, '$.processId', ?) WHERE vdb_id=?", procId, recordId)
+		globalDB.Exec("UPDATE t_adm_vdb SET json_parameter=JSON_SET(json_parameter, '$.processId', ?) WHERE vdb_id=?", procID, recordID)
 		return true
 	} else if BusinessType == 6 || BusinessType == 8 {
-		globalDB.Exec("UPDATE t_adm_arch_list SET json_parameter=JSON_SET(json_parameter, '$.processId', ?) WHERE arch_list_id=?", procId, recordId)
+		globalDB.Exec("UPDATE t_adm_arch_list SET json_parameter=JSON_SET(json_parameter, '$.processId', ?) WHERE arch_list_id=?", procID, recordID)
 		return true
 	} else if BusinessType == 7 || BusinessType == 9 {
-		globalDB.Exec("UPDATE t_adm_arch_recover SET json_parameter=JSON_SET(json_parameter, '$.processId', ?) WHERE arch_recover_id=?", procId, recordId)
+		globalDB.Exec("UPDATE t_adm_arch_recover SET json_parameter=JSON_SET(json_parameter, '$.processId', ?) WHERE arch_recover_id=?", procID, recordID)
 		return true
 	}
 	fmt.Printf("unsupport businessType\n")
@@ -300,21 +309,21 @@ func saveProcessId(procId int, recordId string, BusinessType int) bool {
 func UpdateHeartBeatTimerHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := newContext(r, w, "UpdateHeartBeatTimer")
 	defer logger.AuditLog(ctx, w, r, mustGetClaimsFromToken(r))
-	recordId := r.Form.Get("recordId")
+	recordID := r.Form.Get("recordId")
 	businessType := r.Form.Get("businessType")
-	processId := r.Form.Get("processId")
+	processID := r.Form.Get("processId")
 	var result Result
-	fmt.Printf("recordId:%s,businessType:%s,processId:%s\n", recordId, businessType, processId)
+	fmt.Printf("recordId:%s,businessType:%s,processId:%s\n", recordID, businessType, processID)
 
 	duration := 5 * time.Minute
-	key := businessType + "_" + recordId
+	key := businessType + "_" + recordID
 	for {
-		if recordId == "" || processId == "" || businessType == "" {
+		if recordID == "" || processID == "" || businessType == "" {
 			result.OK = 1
 			result.ErrMsg = "requires the recordId,processId,businessType parameters"
 			break
 		}
-		procId, err := strconv.Atoi(processId)
+		procID, err := strconv.Atoi(processID)
 		if err != nil {
 			result.OK = 1
 			result.ErrMsg = err.Error()
@@ -335,7 +344,7 @@ func UpdateHeartBeatTimerHandler(w http.ResponseWriter, r *http.Request) {
 			timer.Reset(duration)
 			fmt.Println("定时器已延长，新的期限:", time.Now().Add(duration))
 			// 更新进程id到数据库
-			if saveProcessId(procId, recordId, BusinessType) {
+			if saveProcessID(procID, recordID, BusinessType) {
 				result.OK = 0
 			} else {
 				result.OK = 1
@@ -366,26 +375,26 @@ func formatBytes(bytes uint64) string {
 	return fmt.Sprintf("%.2f %s", value, units[int(exp)-1])
 }
 
-func saveStatistics(recordId string, BusinessType int, percent int, transferred uint64, speed uint64) bool {
-	logical_used_str := formatBytes(transferred)
-	speed_str := formatBytes(speed) + "/s"
+func saveStatistics(recordID string, BusinessType int, percent int, transferred uint64, speed uint64) bool {
+	logicalUsedStr := formatBytes(transferred)
+	speedStr := formatBytes(speed) + "/s"
 	if BusinessType == 0 || BusinessType == 1 { //备份
-		globalDB.Exec("UPDATE t_adm_general_backup_snap SET percent=?,used=?,used_str=?,logical_used=?,logical_used_str=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?) WHERE general_backup_snap_id=?", percent, transferred, logical_used_str, transferred, logical_used_str, speed_str, recordId)
+		globalDB.Exec("UPDATE t_adm_general_backup_snap SET percent=?,used=?,used_str=?,logical_used=?,logical_used_str=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?, '$.rate', ?) WHERE general_backup_snap_id=?", percent, transferred, logicalUsedStr, transferred, logicalUsedStr, speedStr, speedStr, recordID)
 		return true
 	} else if BusinessType == 2 { //恢复
-		globalDB.Exec("UPDATE t_adm_general_backup_recover SET percent=?,json_parameters=JSON_SET(json_parameters, '$.average_speed', ?)WHERE general_backup_recover_id=?", percent, speed_str, recordId)
+		globalDB.Exec("UPDATE t_adm_general_backup_recover SET percent=?,json_parameters=JSON_SET(json_parameters, '$.average_speed', ?, '$.rate', ?)WHERE general_backup_recover_id=?", percent, speedStr, speedStr, recordID)
 		return true
 	} else if BusinessType == 3 {
-		globalDB.Exec("UPDATE t_adm_general_backup_check_list check_percent=? WHERE general_backup_check_list_id=?", percent, recordId)
+		globalDB.Exec("UPDATE t_adm_general_backup_check_list check_percent=? WHERE general_backup_check_list_id=?", percent, recordID)
 		return true
 	} else if BusinessType == 4 { //CDM restore
-		globalDB.Exec("UPDATE t_adm_vdb SET percent=?,logicalused=?,logicalusedstr=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?) WHERE vdb_id=?", percent, transferred, logical_used_str, speed_str, recordId)
+		globalDB.Exec("UPDATE t_adm_vdb SET percent=?,logicalused=?,logicalusedstr=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?,'$.rate', ?) WHERE vdb_id=?", percent, transferred, logicalUsedStr, speedStr, speedStr, recordID)
 		return true
 	} else if BusinessType == 6 || BusinessType == 8 {
-		globalDB.Exec("UPDATE t_adm_arch_list SET percent=? WHERE arch_list_id=?", percent, recordId)
+		globalDB.Exec("UPDATE t_adm_arch_list SET percent=? WHERE arch_list_id=?", percent, recordID)
 		return true
 	} else if BusinessType == 7 || BusinessType == 9 {
-		globalDB.Exec("UPDATE t_adm_arch_recover SET percent=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?) WHERE arch_recover_id=?", percent, speed_str, recordId)
+		globalDB.Exec("UPDATE t_adm_arch_recover SET percent=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?,'$.rate', ?) WHERE arch_recover_id=?", percent, speedStr, speedStr, recordID)
 		return true
 	}
 	fmt.Printf("unsupport businessType\n")
@@ -395,7 +404,7 @@ func saveStatistics(recordId string, BusinessType int, percent int, transferred 
 func UpdateStatisticsHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := newContext(r, w, "UpdateStatisticsHandler")
 	defer logger.AuditLog(ctx, w, r, mustGetClaimsFromToken(r))
-	recordId := r.Form.Get("recordId")
+	recordID := r.Form.Get("recordId")
 	businessType := r.Form.Get("businessType")
 	total := r.Form.Get("total")
 	backuped := r.Form.Get("backuped")
@@ -403,7 +412,7 @@ func UpdateStatisticsHandler(w http.ResponseWriter, r *http.Request) {
 	speed := r.Form.Get("speed")
 	var result Result
 	for {
-		if recordId == "" || businessType == "" {
+		if recordID == "" || businessType == "" {
 			result.OK = 1
 			result.ErrMsg = "requires the recordId,businessType parameters"
 			break
@@ -444,7 +453,7 @@ func UpdateStatisticsHandler(w http.ResponseWriter, r *http.Request) {
 			percent = (int)(Backuped * 100 / Total)
 		}
 		// 更新进程id到数据库
-		if saveStatistics(recordId, BusinessType, percent, Transferred, Speed) {
+		if saveStatistics(recordID, BusinessType, percent, Transferred, Speed) {
 			result.OK = 0
 		} else {
 			result.OK = 1
