@@ -370,7 +370,7 @@ func formatBytes(bytes uint64) string {
 		return fmt.Sprintf("%d B", bytes)
 	}
 	exp := math.Floor(math.Log(float64(bytes)) / math.Log(1024))
-	units := []string{"KB", "MB", "GB", "TB", "PB", "EB"}
+	units := []string{"K", "M", "G", "T", "P", "E"}
 	value := float64(bytes) / math.Pow(1024, exp)
 	return fmt.Sprintf("%.2f %s", value, units[int(exp)-1])
 }
