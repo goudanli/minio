@@ -76,7 +76,7 @@ const (
 	EnvRegion     = "MINIO_REGION"      // legacy
 	EnvRegionName = "MINIO_REGION_NAME" // legacy
 	// database
-	EnvDatabasePath     = "DATABASE_PATH"
+	EnvDatabasePath     = "masterip"
 	EnvDatabaseHostIp   = "dbhostip"
 	EnvDatabaseUsername = "dbusr"
 	EnvDatabasePassword = "dbpwd"
