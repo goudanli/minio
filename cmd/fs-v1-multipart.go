@@ -396,8 +396,9 @@ func (fs *FSObjects) PutObjectPart(ctx context.Context, bucket, object, uploadID
 		fmt.Printf("offset err\n")
 		return pi, toObjectErr(errInvalidArgument)
 	}
-
+	fs.appendFileMapMu.Lock()
 	file := fs.appendFileMap[uploadID]
+	fs.appendFileMapMu.Unlock()
 	if file != nil && file.patch {
 		return fs.patchPart(partID, r, file, data, offset)
 	}
@@ -654,7 +655,9 @@ func (fs *FSObjects) CompleteMultipartUpload(ctx context.Context, bucket string,
 	defer NSUpdated(bucket, object)
 
 	{ //如果是patch 直接AbortMultipartUpload
+		fs.appendFileMapMu.Lock()
 		file := fs.appendFileMap[uploadID]
+		fs.appendFileMapMu.Unlock()
 		if file != nil && file.patch {
 			file.handler.Close()
 			err := fs.AbortMultipartUpload(ctx, bucket, object, uploadID, opts)
