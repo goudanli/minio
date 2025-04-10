@@ -62,6 +62,7 @@ import (
 	"github.com/minio/minio/internal/handlers"
 	"github.com/minio/minio/internal/kms"
 	"github.com/minio/minio/internal/logger"
+	"github.com/minio/minio/internal/sm4"
 	"github.com/minio/pkg/certs"
 	"github.com/minio/pkg/console"
 	"github.com/minio/pkg/ellipses"
@@ -869,18 +870,31 @@ func handleCommonEnvVars() {
 		GlobalKMS = KMS
 	}
 
-	if env.IsSet(config.EnvDatabasePath) {
-		path := env.Get(config.EnvDatabasePath, "")
-		logger.Info("databse path: %s", path)
-		globalDBConfig.Mysql.Path = path
-		globalDBConfig.Mysql.Dbname = "adm_dbmodel"
-		globalDBConfig.Mysql.Username = "adm_admin"
-		globalDBConfig.Mysql.Password = "dSadm@34e%"
-		globalDBConfig.Mysql.Port = "13507"
-		globalDBConfig.Mysql.Config = "charset=utf8mb4"
-	} else {
-		logger.Fatal(errors.New("DATABASE_PATH Env not set"), "Unable to start MinIO")
+	path := env.Get(config.EnvDatabasePath, "")
+	dbhostip := env.Get(config.EnvDatabaseHostIp, path)
+	logger.Info("databse path: %s", dbhostip)
+	if dbhostip == "" {
+		logger.Fatal(errors.New("DATABASE_PATH/dbhostip Env not set"), "Unable to start MinIO")
 	}
+	dbport := env.Get(config.EnvDatabasePort, "13507")
+	dbusr := env.Get(config.EnvDatabaseUsername, "adm_admin")
+	dbname := env.Get(config.EnvDatabaseDbname, "adm_dbmodel")
+	dbpwd := env.Get(config.EnvDatabasePassword, "fef7e470f05e9f5d7e077ff4179809d6")
+	codeKey := []byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54, 0x32, 0x10}
+	data, err := hexStringToBytes(dbpwd)
+	if err != nil {
+		logger.Fatal(errors.New("decrypted date failed"), err.Error())
+	}
+	decryptedText, err := sm4.Sm4Ecb(codeKey, data, false)
+	if err != nil {
+		logger.Fatal(errors.New("decrypted date failed"), err.Error())
+	}
+	globalDBConfig.Mysql.Path = dbhostip
+	globalDBConfig.Mysql.Dbname = dbname
+	globalDBConfig.Mysql.Username = dbusr
+	globalDBConfig.Mysql.Password = removeNullBytes(string(decryptedText))
+	globalDBConfig.Mysql.Port = dbport
+	globalDBConfig.Mysql.Config = "charset=utf8mb4"
 }
 
 func getTLSConfig() (x509Certs []*x509.Certificate, manager *certs.Manager, secureConn bool, err error) {
@@ -1005,4 +1019,62 @@ func (a bgCtx) Deadline() (deadline time.Time, ok bool) {
 
 func (a bgCtx) Value(key interface{}) interface{} {
 	return a.parent.Value(key)
+}
+
+// hexStringToBytes 将十六进制字符串转换为字节数组
+func hexStringToBytes(hexString string) ([]byte, error) {
+	// 检查是否为空字符串或 null
+	if hexString == "" {
+		return nil, nil
+	}
+
+	// 转换为大写，避免大小写问题
+	hexString = strings.ToUpper(hexString)
+
+	// 判断字符串的长度是否是偶数，不然无法转换为字节
+	if len(hexString)%2 != 0 {
+		return nil, errors.New("invalid hex string length")
+	}
+
+	// 创建一个字节数组来存储结果
+	bytes := make([]byte, len(hexString)/2)
+
+	// 遍历十六进制字符串，每两个字符转换成一个字节
+	for i := 0; i < len(hexString); i += 2 {
+		// 取出每两个字符
+		highChar := hexString[i]
+		lowChar := hexString[i+1]
+
+		// 将字符转换为字节并拼接
+		highByte, err := charToByte(highChar)
+		if err != nil {
+			return nil, err
+		}
+		lowByte, err := charToByte(lowChar)
+		if err != nil {
+			return nil, err
+		}
+
+		// 拼接高位和低位字节
+		bytes[i/2] = highByte<<4 | lowByte
+	}
+
+	return bytes, nil
+}
+
+// charToByte 将单个十六进制字符转换为字节
+func charToByte(c byte) (byte, error) {
+	if '0' <= c && c <= '9' {
+		return c - '0', nil
+	} else if 'A' <= c && c <= 'F' {
+		return c - 'A' + 10, nil
+	}
+	// 如果是非法字符，返回错误
+	return 0, errors.New("invalid hex character")
+}
+
+func removeNullBytes(s string) string {
+	return string(bytes.TrimFunc([]byte(s), func(r rune) bool {
+		return r == 0 // 过滤所有 0x00
+	}))
 }
