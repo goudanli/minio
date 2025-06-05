@@ -29,7 +29,7 @@ import (
 )
 
 func genLDFlags(version string) string {
-	ldflagsStr := "-s -w"
+	ldflagsStr := "-s -w -checklinkname=0"
 	ldflagsStr += " -X github.com/minio/minio/cmd.Version=" + version
 	ldflagsStr += " -X github.com/minio/minio/cmd.ReleaseTag=" + releaseTag(version)
 	ldflagsStr += " -X github.com/minio/minio/cmd.CommitID=" + commitID()
