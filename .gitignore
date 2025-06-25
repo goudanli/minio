@@ -33,3 +33,5 @@ minio.RELEASE*
 mc
 nancy
 inspects/*
+cdm-s3gateway
+.gitignore

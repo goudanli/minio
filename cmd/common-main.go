@@ -889,12 +889,24 @@ func handleCommonEnvVars() {
 	if err != nil {
 		logger.Fatal(errors.New("decrypted date failed"), err.Error())
 	}
-	globalDBConfig.Mysql.Path = dbhostip
-	globalDBConfig.Mysql.Dbname = dbname
-	globalDBConfig.Mysql.Username = dbusr
-	globalDBConfig.Mysql.Password = removeNullBytes(string(decryptedText))
-	globalDBConfig.Mysql.Port = dbport
-	globalDBConfig.Mysql.Config = "charset=utf8mb4"
+	dbtype := env.Get(config.EnvDatabaseType, "mysql")
+	globalDBConfig.DBType = dbtype
+	if dbtype == "mysql" {
+		globalDBConfig.Mysql.Path = dbhostip
+		globalDBConfig.Mysql.Dbname = dbname
+		globalDBConfig.Mysql.Username = dbusr
+		globalDBConfig.Mysql.Password = removeNullBytes(string(decryptedText))
+		globalDBConfig.Mysql.Port = dbport
+		globalDBConfig.Mysql.Config = "charset=utf8mb4"
+	} else if dbtype == "dm" {
+		globalDBConfig.Dm.Path = dbhostip
+		globalDBConfig.Dm.Dbname = dbname
+		globalDBConfig.Dm.Username = dbusr
+		globalDBConfig.Dm.Password = removeNullBytes(string(decryptedText))
+		globalDBConfig.Dm.Port = dbport
+	} else {
+		logger.Fatal(errors.New("unsupported database type"), "")
+	}
 }
 
 func getTLSConfig() (x509Certs []*x509.Certificate, manager *certs.Manager, secureConn bool, err error) {

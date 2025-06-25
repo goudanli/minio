@@ -63,6 +63,12 @@ type ProgressResult struct {
 	Rate         string `gorm:"column:compress_ratio_str" json:"rate"`
 	RealData     string `gorm:"column:logical_used_str" json:"real_data"`
 	TransferData string `gorm:"column:used_str" json:"transfer_data"`
+	//dm
+	USnapID       int    `gorm:"column:SNAPID"`
+	UStatus       int    `gorm:"column:STATUS"`
+	URate         string `gorm:"column:COMPRESS_RATIO_STR"`
+	URealData     string `gorm:"column:LOGICAL_USED_STR"`
+	UTransferData string `gorm:"column:USED_STR"`
 }
 
 func saveRecordStatus(recordStatus int, recordID string, BusinessType int, timepoint string) bool {
@@ -105,7 +111,7 @@ func saveRecordStatus(recordStatus int, recordID string, BusinessType int, timep
 	return false
 }
 
-// update adm backup job status
+// UpdateRecordStatusHandler updates the status of an adm backup job.
 func UpdateRecordStatusHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := newContext(r, w, "UpdateRecordStatus")
 	defer logger.AuditLog(ctx, w, r, mustGetClaimsFromToken(r))
@@ -198,23 +204,17 @@ func ProgressHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		switch qtype {
 		case 0, 1:
-			sql = "SELECT general_backup_snap_id AS snapid,json_parameter->>'$.snap_status' AS status,used_str,logical_used_str,compress_ratio_str FROM t_adm_general_backup_snap WHERE general_backup_snap_id=" + snapid + " AND oper_type=" + querytype
-			break
+			sql = "SELECT general_backup_snap_id AS snapid,json_value(json_parameter,'$.snap_status') AS status,used_str,logical_used_str,compress_ratio_str FROM t_adm_general_backup_snap WHERE general_backup_snap_id=" + snapid + " AND oper_type=" + querytype
 		case 2:
-			sql = "SELECT general_backup_recover_id AS snapid,json_parameters->>'$.recover_status' AS status FROM t_adm_general_backup_recover WHERE general_backup_recover_id=" + snapid
-			break
+			sql = "SELECT general_backup_recover_id AS snapid,json_value(json_parameters,'$.recover_status') AS status FROM t_adm_general_backup_recover WHERE general_backup_recover_id=" + snapid
 		case 3:
-			sql = "SELECT general_backup_check_list_id AS snapid,json_parameter->>'$.check_status' AS status FROM t_adm_general_backup_check_list WHERE general_backup_check_list_id=" + snapid
-			break
+			sql = "SELECT general_backup_check_list_id AS snapid,json_value(json_parameter,'$.check_status') AS status FROM t_adm_general_backup_check_list WHERE general_backup_check_list_id=" + snapid
 		case 4:
-			sql = "SELECT vdb_id AS snapid, json_parameter->>'$.vdbstatus' AS status FROM t_adm_vdb WHERE vdb_id=" + snapid
-			break
+			sql = "SELECT vdb_id AS snapid, json_value(json_parameter,'$.vdbstatus') AS status FROM t_adm_vdb WHERE vdb_id=" + snapid
 		case 5, 6, 8:
-			sql = "SELECT arch_list_id AS snapid,json_parameter->>'$.arch_status' AS status FROM t_adm_arch_list WHERE arch_list_id=" + snapid
-			break
+			sql = "SELECT arch_list_id AS snapid,json_value(json_parameter,'$.arch_status') AS status FROM t_adm_arch_list WHERE arch_list_id=" + snapid
 		case 7, 9:
-			sql = "SELECT arch_recover_id AS snapid, json_parameter->>'$.recover_status' AS status, percent FROM t_adm_arch_recover WHERE arch_recover_id=" + snapid
-			break
+			sql = "SELECT arch_recover_id AS snapid, json_value(json_parameter,'$.recover_status') AS status, percent FROM t_adm_arch_recover WHERE arch_recover_id=" + snapid
 		default:
 			result.OK = 23
 			result.ErrMsg = "querytype error"
@@ -229,6 +229,13 @@ func ProgressHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		break
+	}
+	if globalDBConfig.DBType == "dm" {
+		result.SnapID = result.USnapID
+		result.Status = result.UStatus
+		result.Rate = result.URate
+		result.RealData = result.URealData
+		result.TransferData = result.UTransferData
 	}
 	jsonBytes, _ := json.Marshal(result)
 	writeSuccessResponseJSON(w, jsonBytes)

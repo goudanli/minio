@@ -82,4 +82,5 @@ const (
 	EnvDatabasePassword = "dbpwd"
 	EnvDatabaseDbname   = "dbname"
 	EnvDatabasePort     = "dbport"
+	EnvDatabaseType     = "dbtype" // mysql, dm, sqlite, postgres, sqlserver, oracle, tidb, clickhouse, etc.
 )
