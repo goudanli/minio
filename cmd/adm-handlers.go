@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -16,34 +15,6 @@ import (
 
 var mutex sync.Mutex
 var mapTimer map[string]*time.Timer
-
-type JParameter struct {
-	SnapStatus int    `json:"snap_status"`
-	UUID       string `json:"uuid"`
-}
-
-func (c JParameter) Value() (driver.Value, error) {
-	b, err := json.Marshal(c)
-	return string(b), err
-}
-
-func (c *JParameter) Scan(input interface{}) error {
-	return json.Unmarshal(input.([]byte), c)
-}
-
-type AdmGeneralBackupSnap struct {
-	ID          int        `gorm:"column:general_backup_snap_id" json:"general_backup_snap_id"`
-	Name        string     `gorm:"column:name" json:"name"`
-	BackupSrcID int        `gorm:"column:general_backup_src_id" json:"general_backup_src_id"`
-	UserID      int        `gorm:"column:user_id" json:"user_id"`
-	SnapStatus  int        `gorm:"column:snap_status" json:"snap_status"`
-	SnapType    int        `gorm:"column:snap_type" json:"snap_type"`
-	Parameter   JParameter `gorm:"column:json_parameter;TYPE:json" json:"json_parameter"`
-}
-
-func (AdmGeneralBackupSnap) TableName() string {
-	return "t_adm_general_backup_snap"
-}
 
 type Result struct {
 	OK     int    `json:"ok"`
@@ -70,26 +41,60 @@ type ProgressResult struct {
 	URealData     string `gorm:"column:LOGICAL_USED_STR"`
 	UTransferData string `gorm:"column:USED_STR"`
 }
+type AdmJSONType struct {
+	JSONParameter  string `gorm:"column:json_parameter"`
+	JSONParameters string `gorm:"column:json_parameters"`
+}
 
 func saveRecordStatus(recordStatus int, recordID string, BusinessType int, timepoint string) bool {
 	fmt.Printf("save record(%s) status:%d\n", recordID, recordStatus)
 	if BusinessType == 0 || BusinessType == 1 { //备份
+		var result AdmJSONType
+		sql := "SELECT json_parameter FROM t_adm_general_backup_snap WHERE general_backup_snap_id=" + recordID
+		if db := globalDB.Raw(sql).First(&result); db.Error != nil {
+			fmt.Println("sql error:", db.Error)
+			return false
+		}
+		var JSONParameter map[string]interface{}
+		json.Unmarshal([]byte(result.JSONParameter), &JSONParameter)
+		JSONParameter["snap_status"] = recordStatus
+		updatedJSONParameter, _ := json.Marshal(JSONParameter)
 		if timepoint != "" {
 			TimePoint, err := strconv.ParseInt(timepoint, 10, 64)
 			if err != nil {
 				fmt.Println("timepoint error:", err)
 				return false
 			}
-			globalDB.Exec("UPDATE t_adm_general_backup_snap SET json_parameter=JSON_SET(json_parameter, '$.snap_status', ?), backup_time=? WHERE general_backup_snap_id=?", recordStatus, TimePoint, recordID)
+			globalDB.Exec("UPDATE t_adm_general_backup_snap SET json_parameter=?, backup_time=? WHERE general_backup_snap_id=?", string(updatedJSONParameter), TimePoint, recordID)
 		} else {
-			globalDB.Exec("UPDATE t_adm_general_backup_snap SET json_parameter=JSON_SET(json_parameter, '$.snap_status', ?) WHERE general_backup_snap_id=?", recordStatus, recordID)
+			globalDB.Exec("UPDATE t_adm_general_backup_snap SET json_parameter=? WHERE general_backup_snap_id=?", string(updatedJSONParameter), recordID)
 		}
 		return true
 	} else if BusinessType == 2 { //恢复
-		globalDB.Exec("UPDATE t_adm_general_backup_recover SET json_parameters=JSON_SET(json_parameters, '$.recover_status', ?) WHERE general_backup_recover_id=?", recordStatus, recordID)
+		var result AdmJSONType
+		sql := "SELECT json_parameters FROM t_adm_general_backup_recover WHERE general_backup_recover_id=" + recordID
+		if db := globalDB.Raw(sql).First(&result); db.Error != nil {
+			fmt.Println("sql error:", db.Error)
+			return false
+		}
+		var JSONParameter map[string]interface{}
+		json.Unmarshal([]byte(result.JSONParameters), &JSONParameter)
+		JSONParameter["snap_status"] = recordStatus
+		updatedJSONParameter, _ := json.Marshal(JSONParameter)
+		globalDB.Exec("UPDATE t_adm_general_backup_recover SET json_parameters=? WHERE general_backup_recover_id=?", string(updatedJSONParameter), recordID)
 		return true
 	} else if BusinessType == 3 {
-		globalDB.Exec("UPDATE t_adm_general_backup_check_list SET json_parameter=JSON_SET(json_parameter, '$.check_status', ?) WHERE general_backup_check_list_id=?", recordStatus, recordID)
+		var result AdmJSONType
+		sql := "SELECT json_parameter FROM t_adm_general_backup_check_list WHERE general_backup_check_list_id=" + recordID
+		if db := globalDB.Raw(sql).First(&result); db.Error != nil {
+			fmt.Println("sql error:", db.Error)
+			return false
+		}
+		var JSONParameter map[string]interface{}
+		json.Unmarshal([]byte(result.JSONParameter), &JSONParameter)
+		JSONParameter["snap_status"] = recordStatus
+		updatedJSONParameter, _ := json.Marshal(JSONParameter)
+		globalDB.Exec("UPDATE t_adm_general_backup_check_list SET json_parameter=? WHERE general_backup_check_list_id=?", string(updatedJSONParameter), recordID)
 		return true
 	} else if BusinessType == 4 { //CDM restore
 		if recordStatus == 3 { //终止
@@ -98,13 +103,43 @@ func saveRecordStatus(recordStatus int, recordID string, BusinessType int, timep
 		if recordStatus == 2 { //失败
 			recordStatus = 3
 		}
-		globalDB.Exec("UPDATE t_adm_vdb SET json_parameter=JSON_SET(json_parameter, '$.vdbstatus', ?) WHERE vdb_id=?", recordStatus, recordID)
+		var result AdmJSONType
+		sql := "SELECT json_parameter FROM t_adm_vdb WHERE vdb_id=" + recordID
+		if db := globalDB.Raw(sql).First(&result); db.Error != nil {
+			fmt.Println("sql error:", db.Error)
+			return false
+		}
+		var JSONParameter map[string]interface{}
+		json.Unmarshal([]byte(result.JSONParameter), &JSONParameter)
+		JSONParameter["snap_status"] = recordStatus
+		updatedJSONParameter, _ := json.Marshal(JSONParameter)
+		globalDB.Exec("UPDATE t_adm_vdb SET json_parameter=? WHERE vdb_id=?", string(updatedJSONParameter), recordID)
 		return true
 	} else if BusinessType == 6 || BusinessType == 8 {
-		globalDB.Exec("UPDATE t_adm_arch_list SET json_parameter=JSON_SET(json_parameter, '$.arch_status', ?) WHERE arch_list_id=?", recordStatus, recordID)
+		var result AdmJSONType
+		sql := "SELECT json_parameter FROM t_adm_arch_list WHERE arch_list_id=" + recordID
+		if db := globalDB.Raw(sql).First(&result); db.Error != nil {
+			fmt.Println("sql error:", db.Error)
+			return false
+		}
+		var JSONParameter map[string]interface{}
+		json.Unmarshal([]byte(result.JSONParameter), &JSONParameter)
+		JSONParameter["snap_status"] = recordStatus
+		updatedJSONParameter, _ := json.Marshal(JSONParameter)
+		globalDB.Exec("UPDATE t_adm_arch_list SET json_parameter=? WHERE arch_list_id=?", string(updatedJSONParameter), recordID)
 		return true
 	} else if BusinessType == 7 || BusinessType == 9 {
-		globalDB.Exec("UPDATE t_adm_arch_recover SET json_parameter=JSON_SET(json_parameter, '$.recover_status', ?) WHERE arch_recover_id=?", recordStatus, recordID)
+		var result AdmJSONType
+		sql := "SELECT json_parameter FROM t_adm_arch_recover WHERE arch_recover_id=" + recordID
+		if db := globalDB.Raw(sql).First(&result); db.Error != nil {
+			fmt.Println("sql error:", db.Error)
+			return false
+		}
+		var JSONParameter map[string]interface{}
+		json.Unmarshal([]byte(result.JSONParameter), &JSONParameter)
+		JSONParameter["snap_status"] = recordStatus
+		updatedJSONParameter, _ := json.Marshal(JSONParameter)
+		globalDB.Exec("UPDATE t_adm_arch_recover SET json_parameter=? WHERE arch_recover_id=?", string(updatedJSONParameter), recordID)
 		return true
 	}
 	fmt.Printf("unsupport businessType\n")
@@ -291,22 +326,82 @@ func AddHeartBeatTimerHandler(w http.ResponseWriter, r *http.Request) {
 
 func saveProcessID(procID int, recordID string, BusinessType int) bool {
 	if BusinessType == 0 || BusinessType == 1 { //备份
-		globalDB.Exec("UPDATE t_adm_general_backup_snap SET json_parameter=JSON_SET(json_parameter, '$.processId', ?) WHERE general_backup_snap_id=?", procID, recordID)
+		var result AdmJSONType
+		sql := "SELECT json_parameter FROM t_adm_general_backup_snap WHERE general_backup_snap_id=" + recordID
+		if db := globalDB.Raw(sql).First(&result); db.Error != nil {
+			fmt.Println("sql error:", db.Error)
+			return false
+		}
+		var JSONParameter map[string]interface{}
+		json.Unmarshal([]byte(result.JSONParameter), &JSONParameter)
+		JSONParameter["processId"] = procID
+		updatedJSONParameter, _ := json.Marshal(JSONParameter)
+		globalDB.Exec("UPDATE t_adm_general_backup_snap SET json_parameter=? WHERE general_backup_snap_id=?", string(updatedJSONParameter), recordID)
 		return true
 	} else if BusinessType == 2 { //恢复
-		globalDB.Exec("UPDATE t_adm_general_backup_recover SET json_parameters=JSON_SET(json_parameters, '$.processId', ?) WHERE general_backup_recover_id=?", procID, recordID)
+		var result AdmJSONType
+		sql := "SELECT json_parameters FROM t_adm_general_backup_recover WHERE general_backup_recover_id=" + recordID
+		if db := globalDB.Raw(sql).First(&result); db.Error != nil {
+			fmt.Println("sql error:", db.Error)
+			return false
+		}
+		var JSONParameter map[string]interface{}
+		json.Unmarshal([]byte(result.JSONParameters), &JSONParameter)
+		JSONParameter["processId"] = procID
+		updatedJSONParameter, _ := json.Marshal(JSONParameter)
+		globalDB.Exec("UPDATE t_adm_general_backup_recover SET json_parameters=? WHERE general_backup_recover_id=?", string(updatedJSONParameter), recordID)
 		return true
 	} else if BusinessType == 3 {
-		globalDB.Exec("UPDATE t_adm_general_backup_check_list SET json_parameter=JSON_SET(json_parameter, '$.processId', ?) WHERE general_backup_check_list_id=?", procID, recordID)
+		var result AdmJSONType
+		sql := "SELECT json_parameter FROM t_adm_general_backup_check_list WHERE general_backup_check_list_id=" + recordID
+		if db := globalDB.Raw(sql).First(&result); db.Error != nil {
+			fmt.Println("sql error:", db.Error)
+			return false
+		}
+		var JSONParameter map[string]interface{}
+		json.Unmarshal([]byte(result.JSONParameter), &JSONParameter)
+		JSONParameter["processId"] = procID
+		updatedJSONParameter, _ := json.Marshal(JSONParameter)
+		globalDB.Exec("UPDATE t_adm_general_backup_check_list SET json_parameter=? WHERE general_backup_check_list_id=?", string(updatedJSONParameter), recordID)
 		return true
 	} else if BusinessType == 4 { //CDM restore
-		globalDB.Exec("UPDATE t_adm_vdb SET json_parameter=JSON_SET(json_parameter, '$.processId', ?) WHERE vdb_id=?", procID, recordID)
+		var result AdmJSONType
+		sql := "SELECT json_parameter FROM t_adm_vdb WHERE vdb_id=" + recordID
+		if db := globalDB.Raw(sql).First(&result); db.Error != nil {
+			fmt.Println("sql error:", db.Error)
+			return false
+		}
+		var JSONParameter map[string]interface{}
+		json.Unmarshal([]byte(result.JSONParameter), &JSONParameter)
+		JSONParameter["processId"] = procID
+		updatedJSONParameter, _ := json.Marshal(JSONParameter)
+		globalDB.Exec("UPDATE t_adm_vdb SET json_parameter=? WHERE vdb_id=?", string(updatedJSONParameter), recordID)
 		return true
 	} else if BusinessType == 6 || BusinessType == 8 {
-		globalDB.Exec("UPDATE t_adm_arch_list SET json_parameter=JSON_SET(json_parameter, '$.processId', ?) WHERE arch_list_id=?", procID, recordID)
+		var result AdmJSONType
+		sql := "SELECT json_parameter FROM t_adm_arch_list WHERE arch_list_id=" + recordID
+		if db := globalDB.Raw(sql).First(&result); db.Error != nil {
+			fmt.Println("sql error:", db.Error)
+			return false
+		}
+		var JSONParameter map[string]interface{}
+		json.Unmarshal([]byte(result.JSONParameter), &JSONParameter)
+		JSONParameter["processId"] = procID
+		updatedJSONParameter, _ := json.Marshal(JSONParameter)
+		globalDB.Exec("UPDATE t_adm_arch_list SET json_parameter=? WHERE arch_list_id=?", string(updatedJSONParameter), recordID)
 		return true
 	} else if BusinessType == 7 || BusinessType == 9 {
-		globalDB.Exec("UPDATE t_adm_arch_recover SET json_parameter=JSON_SET(json_parameter, '$.processId', ?) WHERE arch_recover_id=?", procID, recordID)
+		var result AdmJSONType
+		sql := "SELECT json_parameter FROM t_adm_arch_recover WHERE arch_recover_id=" + recordID
+		if db := globalDB.Raw(sql).First(&result); db.Error != nil {
+			fmt.Println("sql error:", db.Error)
+			return false
+		}
+		var JSONParameter map[string]interface{}
+		json.Unmarshal([]byte(result.JSONParameter), &JSONParameter)
+		JSONParameter["processId"] = procID
+		updatedJSONParameter, _ := json.Marshal(JSONParameter)
+		globalDB.Exec("UPDATE t_adm_arch_recover SET json_parameter=? WHERE arch_recover_id=?", string(updatedJSONParameter), recordID)
 		return true
 	}
 	fmt.Printf("unsupport businessType\n")
@@ -386,22 +481,66 @@ func saveStatistics(recordID string, BusinessType int, percent int, transferred 
 	logicalUsedStr := formatBytes(transferred)
 	speedStr := formatBytes(speed) + "/s"
 	if BusinessType == 0 || BusinessType == 1 { //备份
-		globalDB.Exec("UPDATE t_adm_general_backup_snap SET percent=?,used=?,used_str=?,logical_used=?,logical_used_str=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?, '$.rate', ?) WHERE general_backup_snap_id=?", percent, transferred, logicalUsedStr, transferred, logicalUsedStr, speedStr, speedStr, recordID)
+		var result AdmJSONType
+		sql := "SELECT json_parameter FROM t_adm_general_backup_snap WHERE general_backup_snap_id=" + recordID
+		if db := globalDB.Raw(sql).First(&result); db.Error != nil {
+			fmt.Println("sql error:", db.Error)
+			return false
+		}
+		var JSONParameter map[string]interface{}
+		json.Unmarshal([]byte(result.JSONParameter), &JSONParameter)
+		JSONParameter["average_speed"] = speedStr
+		JSONParameter["rate"] = speedStr
+		updatedJSONParameter, _ := json.Marshal(JSONParameter)
+		globalDB.Exec("UPDATE t_adm_general_backup_snap SET percent=?,used=?,used_str=?,logical_used=?,logical_used_str=?,json_parameter=? WHERE general_backup_snap_id=?", percent, transferred, logicalUsedStr, transferred, logicalUsedStr, string(updatedJSONParameter), recordID)
 		return true
 	} else if BusinessType == 2 { //恢复
-		globalDB.Exec("UPDATE t_adm_general_backup_recover SET percent=?,json_parameters=JSON_SET(json_parameters, '$.average_speed', ?, '$.rate', ?)WHERE general_backup_recover_id=?", percent, speedStr, speedStr, recordID)
+		var result AdmJSONType
+		sql := "SELECT json_parameters FROM t_adm_general_backup_recover WHERE general_backup_recover_id=" + recordID
+		if db := globalDB.Raw(sql).First(&result); db.Error != nil {
+			fmt.Println("sql error:", db.Error)
+			return false
+		}
+		var JSONParameter map[string]interface{}
+		json.Unmarshal([]byte(result.JSONParameters), &JSONParameter)
+		JSONParameter["average_speed"] = speedStr
+		JSONParameter["rate"] = speedStr
+		updatedJSONParameter, _ := json.Marshal(JSONParameter)
+		globalDB.Exec("UPDATE t_adm_general_backup_recover SET percent=?,json_parameters=? WHERE general_backup_recover_id=?", percent, string(updatedJSONParameter), recordID)
 		return true
 	} else if BusinessType == 3 {
 		globalDB.Exec("UPDATE t_adm_general_backup_check_list check_percent=? WHERE general_backup_check_list_id=?", percent, recordID)
 		return true
 	} else if BusinessType == 4 { //CDM restore
-		globalDB.Exec("UPDATE t_adm_vdb SET percent=?,logicalused=?,logicalusedstr=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?,'$.rate', ?) WHERE vdb_id=?", percent, transferred, logicalUsedStr, speedStr, speedStr, recordID)
+		var result AdmJSONType
+		sql := "SELECT json_parameter FROM t_adm_vdb WHERE vdb_id=" + recordID
+		if db := globalDB.Raw(sql).First(&result); db.Error != nil {
+			fmt.Println("sql error:", db.Error)
+			return false
+		}
+		var JSONParameter map[string]interface{}
+		json.Unmarshal([]byte(result.JSONParameter), &JSONParameter)
+		JSONParameter["average_speed"] = speedStr
+		JSONParameter["rate"] = speedStr
+		updatedJSONParameter, _ := json.Marshal(JSONParameter)
+		globalDB.Exec("UPDATE t_adm_vdb SET percent=?,logicalused=?,logicalusedstr=?,json_parameter=? WHERE vdb_id=?", percent, transferred, logicalUsedStr, string(updatedJSONParameter), recordID)
 		return true
 	} else if BusinessType == 6 || BusinessType == 8 {
 		globalDB.Exec("UPDATE t_adm_arch_list SET percent=? WHERE arch_list_id=?", percent, recordID)
 		return true
 	} else if BusinessType == 7 || BusinessType == 9 {
-		globalDB.Exec("UPDATE t_adm_arch_recover SET percent=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?,'$.rate', ?) WHERE arch_recover_id=?", percent, speedStr, speedStr, recordID)
+		var result AdmJSONType
+		sql := "SELECT json_parameter FROM t_adm_arch_recover WHERE arch_recover_id=" + recordID
+		if db := globalDB.Raw(sql).First(&result); db.Error != nil {
+			fmt.Println("sql error:", db.Error)
+			return false
+		}
+		var JSONParameter map[string]interface{}
+		json.Unmarshal([]byte(result.JSONParameter), &JSONParameter)
+		JSONParameter["average_speed"] = speedStr
+		JSONParameter["rate"] = speedStr
+		updatedJSONParameter, _ := json.Marshal(JSONParameter)
+		globalDB.Exec("UPDATE t_adm_arch_recover SET percent=?,json_parameter=? WHERE arch_recover_id=?", percent, string(updatedJSONParameter), recordID)
 		return true
 	}
 	fmt.Printf("unsupport businessType\n")
