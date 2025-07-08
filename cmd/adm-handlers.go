@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -16,34 +15,6 @@ import (
 
 var mutex sync.Mutex
 var mapTimer map[string]*time.Timer
-
-type JParameter struct {
-	SnapStatus int    `json:"snap_status"`
-	UUID       string `json:"uuid"`
-}
-
-func (c JParameter) Value() (driver.Value, error) {
-	b, err := json.Marshal(c)
-	return string(b), err
-}
-
-func (c *JParameter) Scan(input interface{}) error {
-	return json.Unmarshal(input.([]byte), c)
-}
-
-type AdmGeneralBackupSnap struct {
-	ID          int        `gorm:"column:general_backup_snap_id" json:"general_backup_snap_id"`
-	Name        string     `gorm:"column:name" json:"name"`
-	BackupSrcID int        `gorm:"column:general_backup_src_id" json:"general_backup_src_id"`
-	UserID      int        `gorm:"column:user_id" json:"user_id"`
-	SnapStatus  int        `gorm:"column:snap_status" json:"snap_status"`
-	SnapType    int        `gorm:"column:snap_type" json:"snap_type"`
-	Parameter   JParameter `gorm:"column:json_parameter;TYPE:json" json:"json_parameter"`
-}
-
-func (AdmGeneralBackupSnap) TableName() string {
-	return "t_adm_general_backup_snap"
-}
 
 type Result struct {
 	OK     int    `json:"ok"`
@@ -214,7 +185,7 @@ func ProgressHandler(w http.ResponseWriter, r *http.Request) {
 		case 5, 6, 8:
 			sql = "SELECT arch_list_id AS snapid,json_value(json_parameter,'$.arch_status') AS status FROM t_adm_arch_list WHERE arch_list_id=" + snapid
 		case 7, 9:
-			sql = "SELECT arch_recover_id AS snapid, json_value(json_parameter,'$.recover_status') AS status, percent FROM t_adm_arch_recover WHERE arch_recover_id=" + snapid
+			sql = "SELECT arch_recover_id AS snapid, json_value(json_parameter,'$.recover_status') AS status FROM t_adm_arch_recover WHERE arch_recover_id=" + snapid
 		default:
 			result.OK = 23
 			result.ErrMsg = "querytype error"
@@ -386,22 +357,42 @@ func saveStatistics(recordID string, BusinessType int, percent int, transferred 
 	logicalUsedStr := formatBytes(transferred)
 	speedStr := formatBytes(speed) + "/s"
 	if BusinessType == 0 || BusinessType == 1 { //备份
-		globalDB.Exec("UPDATE t_adm_general_backup_snap SET percent=?,used=?,used_str=?,logical_used=?,logical_used_str=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?, '$.rate', ?) WHERE general_backup_snap_id=?", percent, transferred, logicalUsedStr, transferred, logicalUsedStr, speedStr, speedStr, recordID)
+		if globalDBConfig.DBType == "mysql" {
+			globalDB.Exec("UPDATE t_adm_general_backup_snap SET percent=?,used=?,used_str=?,logical_used=?,logical_used_str=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?, '$.rate', ?) WHERE general_backup_snap_id=?", percent, transferred, logicalUsedStr, transferred, logicalUsedStr, speedStr, speedStr, recordID)
+		} else if globalDBConfig.DBType == "dm" {
+			globalDB.Exec("UPDATE t_adm_general_backup_snap SET \"PERCENT\"=?,used=?,used_str=?,logical_used=?,logical_used_str=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?, '$.rate', ?) WHERE general_backup_snap_id=?", percent, transferred, logicalUsedStr, transferred, logicalUsedStr, speedStr, speedStr, recordID)
+		}
 		return true
 	} else if BusinessType == 2 { //恢复
-		globalDB.Exec("UPDATE t_adm_general_backup_recover SET percent=?,json_parameters=JSON_SET(json_parameters, '$.average_speed', ?, '$.rate', ?)WHERE general_backup_recover_id=?", percent, speedStr, speedStr, recordID)
+		if globalDBConfig.DBType == "mysql" {
+			globalDB.Exec("UPDATE t_adm_general_backup_recover SET percent=?,json_parameters=JSON_SET(json_parameters, '$.average_speed', ?, '$.rate', ?)WHERE general_backup_recover_id=?", percent, speedStr, speedStr, recordID)
+		} else if globalDBConfig.DBType == "dm" {
+			globalDB.Exec("UPDATE t_adm_general_backup_recover SET \"PERCENT\"=?,json_parameters=JSON_SET(json_parameters, '$.average_speed', ?, '$.rate', ?)WHERE general_backup_recover_id=?", percent, speedStr, speedStr, recordID)
+		}
 		return true
 	} else if BusinessType == 3 {
 		globalDB.Exec("UPDATE t_adm_general_backup_check_list check_percent=? WHERE general_backup_check_list_id=?", percent, recordID)
 		return true
 	} else if BusinessType == 4 { //CDM restore
-		globalDB.Exec("UPDATE t_adm_vdb SET percent=?,logicalused=?,logicalusedstr=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?,'$.rate', ?) WHERE vdb_id=?", percent, transferred, logicalUsedStr, speedStr, speedStr, recordID)
+		if globalDBConfig.DBType == "mysql" {
+			globalDB.Exec("UPDATE t_adm_vdb SET percent=?,logicalused=?,logicalusedstr=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?,'$.rate', ?) WHERE vdb_id=?", percent, transferred, logicalUsedStr, speedStr, speedStr, recordID)
+		} else if globalDBConfig.DBType == "dm" {
+			globalDB.Exec("UPDATE t_adm_vdb SET \"PERCENT\"=?,logicalused=?,logicalusedstr=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?,'$.rate', ?) WHERE vdb_id=?", percent, transferred, logicalUsedStr, speedStr, speedStr, recordID)
+		}
 		return true
 	} else if BusinessType == 6 || BusinessType == 8 {
-		globalDB.Exec("UPDATE t_adm_arch_list SET percent=? WHERE arch_list_id=?", percent, recordID)
+		if globalDBConfig.DBType == "mysql" {
+			globalDB.Exec("UPDATE t_adm_arch_list SET percent=? WHERE arch_list_id=?", percent, recordID)
+		} else if globalDBConfig.DBType == "dm" {
+			globalDB.Exec("UPDATE t_adm_arch_list SET \"PERCENT\"=? WHERE arch_list_id=?", percent, recordID)
+		}
 		return true
 	} else if BusinessType == 7 || BusinessType == 9 {
-		globalDB.Exec("UPDATE t_adm_arch_recover SET percent=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?,'$.rate', ?) WHERE arch_recover_id=?", percent, speedStr, speedStr, recordID)
+		if globalDBConfig.DBType == "mysql" {
+			globalDB.Exec("UPDATE t_adm_arch_recover SET percent=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?,'$.rate', ?) WHERE arch_recover_id=?", percent, speedStr, speedStr, recordID)
+		} else if globalDBConfig.DBType == "dm" {
+			globalDB.Exec("UPDATE t_adm_arch_recover SET \"PERCENT\"=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?,'$.rate', ?) WHERE arch_recover_id=?", percent, speedStr, speedStr, recordID)
+		}
 		return true
 	}
 	fmt.Printf("unsupport businessType\n")
