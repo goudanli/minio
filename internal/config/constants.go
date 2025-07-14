@@ -78,7 +78,7 @@ const (
 	// database
 	EnvDatabasePath     = "masterip"
 	EnvDatabaseHostIp   = "dbhostip"
-	EnvDatabaseUsername = "dbusr"
+	EnvDatabaseUsername = "dbuser"
 	EnvDatabasePassword = "dbpwd"
 	EnvDatabaseDbname   = "dbname"
 	EnvDatabasePort     = "dbport"
