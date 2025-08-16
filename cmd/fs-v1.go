@@ -76,7 +76,7 @@ type FSObjects struct {
 	diskMount bool
 
 	appendFileMap   map[string]*fsAppendFile
-	appendFileMapMu sync.Mutex
+	appendFileMapMu sync.RWMutex
 
 	// To manage the appendRoutine go-routines
 	nsMutex *nsLockMap
