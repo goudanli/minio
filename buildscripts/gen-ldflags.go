@@ -41,7 +41,18 @@ func genLDFlags(version string) string {
 
 // genReleaseTag prints release tag to the console for easy git tagging.
 func releaseTag(version string) string {
-	relPrefix := "DEVELOPMENT"
+	var (
+		branch []byte
+		err    error
+	)
+	cmdName := "git"
+	cmdArgs := []string{"rev-parse", "--abbrev-ref", "HEAD"}
+	if branch, err = exec.Command(cmdName, cmdArgs...).Output(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error get git branch name: ", err)
+		os.Exit(1)
+	}
+	// relPrefix := "DEVELOPMENT"
+	relPrefix := strings.TrimSpace(string(branch))
 	if prefix := os.Getenv("MINIO_RELEASE"); prefix != "" {
 		relPrefix = prefix
 	}
