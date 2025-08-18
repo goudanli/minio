@@ -939,6 +939,8 @@ func (fs *FSObjects) AbortMultipartUpload(ctx context.Context, bucket, object, u
 	fs.appendFileMapMu.Lock()
 	// Remove file in tmp folder
 	file := fs.appendFileMap[uploadID]
+	delete(fs.appendFileMap, uploadID)
+	fs.appendFileMapMu.Unlock()
 	if file != nil {
 		if !file.patch {
 			fsRemoveFile(ctx, file.filePath)
@@ -946,8 +948,6 @@ func (fs *FSObjects) AbortMultipartUpload(ctx context.Context, bucket, object, u
 			file.handler.Close()
 		}
 	}
-	delete(fs.appendFileMap, uploadID)
-	fs.appendFileMapMu.Unlock()
 
 	uploadIDDir := fs.getUploadIDDir(bucket, object, uploadID)
 	// Just check if the uploadID exists to avoid copy if it doesn't.
