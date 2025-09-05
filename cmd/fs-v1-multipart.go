@@ -934,8 +934,6 @@ func (fs *FSObjects) AbortMultipartUpload(ctx context.Context, bucket, object, u
 		return toObjectErr(err, bucket)
 	}
 
-	fs.backgroundAppend(ctx, bucket, object, uploadID)
-
 	fs.appendFileMapMu.Lock()
 	// Remove file in tmp folder
 	file := fs.appendFileMap[uploadID]
@@ -946,7 +944,9 @@ func (fs *FSObjects) AbortMultipartUpload(ctx context.Context, bucket, object, u
 			fsRemoveFile(ctx, file.filePath)
 		} else {
 			file.handler.Close()
+			file.handler = nil
 		}
+		file = nil
 	}
 
 	uploadIDDir := fs.getUploadIDDir(bucket, object, uploadID)
