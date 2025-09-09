@@ -89,6 +89,7 @@ type fsAppendFile struct {
 	filePath string     // Absolute path of the file in the temp location.
 	patch    bool
 	handler  *os.File
+	timer    *time.Timer
 }
 
 // Initializes meta volume on all the fs path.

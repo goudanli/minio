@@ -177,6 +177,8 @@ func (fs *FSObjects) writeData(appendFile *os.File, data *hash.Reader, offset in
 func (fs *FSObjects) patchPart(partID int, r *PutObjReader, file *fsAppendFile, data *hash.Reader, offset int64) (pi PartInfo, e error) {
 	file.Lock()
 	defer file.Unlock()
+	duration := 2 * time.Minute
+	file.timer.Reset(duration)
 	if err := fs.writeData(file.handler, data, offset); err != nil {
 		fmt.Printf("writeData err:%s\n", err.Error())
 		return pi, toObjectErr(errInvalidArgument)
@@ -325,12 +327,24 @@ func (fs *FSObjects) NewMultipartUpload(ctx context.Context, bucket, object stri
 		if err != nil {
 			return "", toObjectErr(err, bucket, object)
 		}
-
+		duration := 2 * time.Minute
+		timer := time.AfterFunc(duration, func() {
+			fmt.Println("关闭文件:", objPath)
+			fs.appendFileMapMu.Lock()
+			file := fs.appendFileMap[uploadID]
+			delete(fs.appendFileMap, uploadID)
+			fs.appendFileMapMu.Unlock()
+			file.handler.Close()
+			file.timer.Stop()
+			file = nil
+		})
 		file := &fsAppendFile{
 			filePath: objPath,
 			patch:    true,
 			handler:  patchfile,
+			timer:    timer,
 		}
+
 		fs.appendFileMapMu.Lock()
 		fs.appendFileMap[uploadID] = file
 		fs.appendFileMapMu.Unlock()
@@ -943,6 +957,8 @@ func (fs *FSObjects) AbortMultipartUpload(ctx context.Context, bucket, object, u
 		if !file.patch {
 			fsRemoveFile(ctx, file.filePath)
 		} else {
+			file.timer.Stop()
+			file.timer = nil
 			file.handler.Close()
 			file.handler = nil
 		}
