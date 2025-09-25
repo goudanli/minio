@@ -71,7 +71,7 @@ func saveRecordStatus(recordStatus int, recordID string, BusinessType int, timep
 		}
 		globalDB.Exec("UPDATE t_adm_vdb SET json_parameter=JSON_SET(json_parameter, '$.vdbstatus', ?) WHERE vdb_id=?", recordStatus, recordID)
 		return true
-	} else if BusinessType == 6 || BusinessType == 8 {
+	} else if BusinessType == 5 || BusinessType == 6 || BusinessType == 8 {
 		globalDB.Exec("UPDATE t_adm_arch_list SET json_parameter=JSON_SET(json_parameter, '$.arch_status', ?) WHERE arch_list_id=?", recordStatus, recordID)
 		return true
 	} else if BusinessType == 7 || BusinessType == 9 {
@@ -273,7 +273,7 @@ func saveProcessID(procID int, recordID string, BusinessType int) bool {
 	} else if BusinessType == 4 { //CDM restore
 		globalDB.Exec("UPDATE t_adm_vdb SET json_parameter=JSON_SET(json_parameter, '$.processId', ?) WHERE vdb_id=?", procID, recordID)
 		return true
-	} else if BusinessType == 6 || BusinessType == 8 {
+	} else if BusinessType == 5 || BusinessType == 6 || BusinessType == 8 {
 		globalDB.Exec("UPDATE t_adm_arch_list SET json_parameter=JSON_SET(json_parameter, '$.processId', ?) WHERE arch_list_id=?", procID, recordID)
 		return true
 	} else if BusinessType == 7 || BusinessType == 9 {
@@ -380,11 +380,11 @@ func saveStatistics(recordID string, BusinessType int, percent int, transferred 
 			globalDB.Exec("UPDATE t_adm_vdb SET \"PERCENT\"=?,logicalused=?,logicalusedstr=?,json_parameter=JSON_SET(json_parameter, '$.average_speed', ?,'$.rate', ?) WHERE vdb_id=?", percent, transferred, logicalUsedStr, speedStr, speedStr, recordID)
 		}
 		return true
-	} else if BusinessType == 6 || BusinessType == 8 {
+	} else if BusinessType == 5 || BusinessType == 6 || BusinessType == 8 {
 		if globalDBConfig.DBType == "mysql" {
-			globalDB.Exec("UPDATE t_adm_arch_list SET percent=? WHERE arch_list_id=?", percent, recordID)
+			globalDB.Exec("UPDATE t_adm_arch_list SET percent=?,json_parameter=JSON_SET(json_parameter, '$.archSize', ?) WHERE arch_list_id=?", percent, transferred, recordID)
 		} else if globalDBConfig.DBType == "dm" {
-			globalDB.Exec("UPDATE t_adm_arch_list SET \"PERCENT\"=? WHERE arch_list_id=?", percent, recordID)
+			globalDB.Exec("UPDATE t_adm_arch_list SET \"PERCENT\"=?,json_parameter=JSON_SET(json_parameter, '$.archSize', ?) WHERE arch_list_id=?", percent, transferred, recordID)
 		}
 		return true
 	} else if BusinessType == 7 || BusinessType == 9 {
