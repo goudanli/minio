@@ -330,6 +330,7 @@ func UpdateHeartBeatTimerHandler(w http.ResponseWriter, r *http.Request) {
 		} else {
 			result.OK = 1
 			result.ErrMsg = "Timer not found"
+			fmt.Printf("Timer not found,recordId:%s\n", recordID)
 		}
 		break
 	}
