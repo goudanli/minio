@@ -77,6 +77,8 @@ type FSObjects struct {
 
 	appendFileMap   map[string]*fsAppendFile
 	appendFileMapMu sync.RWMutex
+	patchFileMap    map[string]*fsAppendFile
+	patchFileMapMu  sync.RWMutex
 
 	// To manage the appendRoutine go-routines
 	nsMutex *nsLockMap
@@ -171,6 +173,7 @@ func NewFSObjectLayer(fsPath string) (ObjectLayer, error) {
 		nsMutex:       newNSLock(false),
 		listPool:      NewTreeWalkPool(globalLookupTimeout),
 		appendFileMap: make(map[string]*fsAppendFile),
+		patchFileMap:  make(map[string]*fsAppendFile),
 		diskMount:     mountinfo.IsLikelyMountPoint(fsPath),
 	}
 

@@ -177,7 +177,7 @@ func (fs *FSObjects) writeData(appendFile *os.File, data *hash.Reader, offset in
 func (fs *FSObjects) patchPart(partID int, r *PutObjReader, file *fsAppendFile, data *hash.Reader, offset int64) (pi PartInfo, e error) {
 	file.Lock()
 	defer file.Unlock()
-	duration := 2 * time.Minute
+	duration := 15 * time.Minute
 	file.timer.Reset(duration)
 	if err := fs.writeData(file.handler, data, offset); err != nil {
 		fmt.Printf("writeData err:%s\n", err.Error())
@@ -288,6 +288,44 @@ func (fs *FSObjects) NewMultipartUpload(ctx context.Context, bucket, object stri
 	}
 
 	uploadID := mustGetUUID()
+	patch, ok := ctx.Value("patch").(bool)
+	if !ok {
+		fmt.Printf("patch param err\n")
+		return "", toObjectErr(errInvalidArgument)
+	}
+	if patch {
+		// 检查object 是否存在,不存在则创建
+		objPath := pathJoin(fs.fsPath, bucket, object)
+		patchfile, err := os.OpenFile(objPath, os.O_RDWR|os.O_CREATE, 0666)
+		if err != nil {
+			return "", toObjectErr(err, bucket, object)
+		}
+		duration := 15 * time.Minute
+		timer := time.AfterFunc(duration, func() {
+			fmt.Println("关闭文件:", objPath)
+			fs.patchFileMapMu.Lock()
+			file := fs.patchFileMap[uploadID]
+			delete(fs.patchFileMap, uploadID)
+			fs.patchFileMapMu.Unlock()
+			file.handler.Close()
+			file.timer.Stop()
+			file = nil
+		})
+		file := &fsAppendFile{
+			filePath: objPath,
+			patch:    true,
+			handler:  patchfile,
+			timer:    timer,
+		}
+
+		fs.patchFileMapMu.Lock()
+		fs.patchFileMap[uploadID] = file
+		fs.patchFileMapMu.Unlock()
+		return uploadID, nil
+	} else {
+		fmt.Printf("not patch,%s\n", object)
+	}
+
 	uploadIDDir := fs.getUploadIDDir(bucket, object, uploadID)
 
 	err := mkdirAll(uploadIDDir, 0o755)
@@ -314,40 +352,6 @@ func (fs *FSObjects) NewMultipartUpload(ctx context.Context, bucket, object stri
 	if err = ioutil.WriteFile(pathJoin(uploadIDDir, fs.metaJSONFile), fsMetaBytes, 0o666); err != nil {
 		logger.LogIf(ctx, err)
 		return "", err
-	}
-	patch, ok := ctx.Value("patch").(bool)
-	if !ok {
-		fmt.Printf("patch param err\n")
-		return "", toObjectErr(errInvalidArgument)
-	}
-	if patch {
-		// 检查object 是否存在,不存在则创建
-		objPath := pathJoin(fs.fsPath, bucket, object)
-		patchfile, err := os.OpenFile(objPath, os.O_RDWR|os.O_CREATE, 0666)
-		if err != nil {
-			return "", toObjectErr(err, bucket, object)
-		}
-		duration := 2 * time.Minute
-		timer := time.AfterFunc(duration, func() {
-			fmt.Println("关闭文件:", objPath)
-			fs.appendFileMapMu.Lock()
-			file := fs.appendFileMap[uploadID]
-			delete(fs.appendFileMap, uploadID)
-			fs.appendFileMapMu.Unlock()
-			file.handler.Close()
-			file.timer.Stop()
-			file = nil
-		})
-		file := &fsAppendFile{
-			filePath: objPath,
-			patch:    true,
-			handler:  patchfile,
-			timer:    timer,
-		}
-
-		fs.appendFileMapMu.Lock()
-		fs.appendFileMap[uploadID] = file
-		fs.appendFileMapMu.Unlock()
 	}
 	return uploadID, nil
 }
@@ -410,10 +414,10 @@ func (fs *FSObjects) PutObjectPart(ctx context.Context, bucket, object, uploadID
 		fmt.Printf("offset err\n")
 		return pi, toObjectErr(errInvalidArgument)
 	}
-	fs.appendFileMapMu.RLock()
-	file := fs.appendFileMap[uploadID]
-	fs.appendFileMapMu.RUnlock()
-	if file != nil && file.patch {
+	fs.patchFileMapMu.RLock()
+	file := fs.patchFileMap[uploadID]
+	fs.patchFileMapMu.RUnlock()
+	if file != nil {
 		return fs.patchPart(partID, r, file, data, offset)
 	}
 
@@ -497,6 +501,13 @@ func (fs *FSObjects) GetMultipartInfo(ctx context.Context, bucket, object, uploa
 		return minfo, toObjectErr(err, bucket)
 	}
 
+	fs.patchFileMapMu.RLock()
+	file := fs.patchFileMap[uploadID]
+	fs.patchFileMapMu.RUnlock()
+	if file != nil {
+		return minfo, nil
+	}
+
 	uploadIDDir := fs.getUploadIDDir(bucket, object, uploadID)
 	if _, err := fsStatFile(ctx, pathJoin(uploadIDDir, fs.metaJSONFile)); err != nil {
 		if err == errFileNotFound || err == errFileAccessDenied {
@@ -541,6 +552,13 @@ func (fs *FSObjects) ListObjectParts(ctx context.Context, bucket, object, upload
 	// Check if bucket exists
 	if _, err := fs.statBucketDir(ctx, bucket); err != nil {
 		return result, toObjectErr(err, bucket)
+	}
+
+	fs.patchFileMapMu.RLock()
+	file := fs.patchFileMap[uploadID]
+	fs.patchFileMapMu.RUnlock()
+	if file != nil {
+		return result, nil
 	}
 
 	uploadIDDir := fs.getUploadIDDir(bucket, object, uploadID)
@@ -669,10 +687,10 @@ func (fs *FSObjects) CompleteMultipartUpload(ctx context.Context, bucket string,
 	defer NSUpdated(bucket, object)
 
 	{ //如果是patch 直接AbortMultipartUpload
-		fs.appendFileMapMu.RLock()
-		file := fs.appendFileMap[uploadID]
-		fs.appendFileMapMu.RUnlock()
-		if file != nil && file.patch {
+		fs.patchFileMapMu.RLock()
+		file := fs.patchFileMap[uploadID]
+		fs.patchFileMapMu.RUnlock()
+		if file != nil {
 			file.handler.Close()
 			err := fs.AbortMultipartUpload(ctx, bucket, object, uploadID, opts)
 			if err != nil {
@@ -948,20 +966,26 @@ func (fs *FSObjects) AbortMultipartUpload(ctx context.Context, bucket, object, u
 		return toObjectErr(err, bucket)
 	}
 
+	fs.patchFileMapMu.Lock()
+	patchfile := fs.patchFileMap[uploadID]
+	delete(fs.patchFileMap, uploadID)
+	fs.patchFileMapMu.Unlock()
+	if patchfile != nil {
+		patchfile.timer.Stop()
+		patchfile.timer = nil
+		patchfile.handler.Close()
+		patchfile.handler = nil
+		patchfile = nil
+		return nil
+	}
+
 	fs.appendFileMapMu.Lock()
 	// Remove file in tmp folder
 	file := fs.appendFileMap[uploadID]
 	delete(fs.appendFileMap, uploadID)
 	fs.appendFileMapMu.Unlock()
 	if file != nil {
-		if !file.patch {
-			fsRemoveFile(ctx, file.filePath)
-		} else {
-			file.timer.Stop()
-			file.timer = nil
-			file.handler.Close()
-			file.handler = nil
-		}
+		fsRemoveFile(ctx, file.filePath)
 		file = nil
 	}
 
