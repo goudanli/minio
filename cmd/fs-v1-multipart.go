@@ -177,7 +177,7 @@ func (fs *FSObjects) writeData(appendFile *os.File, data *hash.Reader, offset in
 func (fs *FSObjects) patchPart(partID int, r *PutObjReader, file *fsAppendFile, data *hash.Reader, offset int64) (pi PartInfo, e error) {
 	file.Lock()
 	defer file.Unlock()
-	duration := 60 * time.Minute
+	duration := time.Duration(globalFileOpenTimeout) * time.Minute
 	file.timer.Reset(duration)
 	if err := fs.writeData(file.handler, data, offset); err != nil {
 		fmt.Printf("writeData err:%s\n", err.Error())
@@ -304,7 +304,7 @@ func (fs *FSObjects) NewMultipartUpload(ctx context.Context, bucket, object stri
 		if err != nil {
 			return "", toObjectErr(err, bucket, object)
 		}
-		duration := 60 * time.Minute
+		duration := time.Duration(globalFileOpenTimeout) * time.Minute
 		timer := time.AfterFunc(duration, func() {
 			fmt.Println("关闭文件:", objPath)
 			fs.patchFileMapMu.Lock()

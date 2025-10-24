@@ -360,6 +360,7 @@ var (
 	globalDBConfig               database.DataBase
 	globalDB                     *gorm.DB
 	// Add new variable global values here.
+	globalFileOpenTimeout uint32 // in minutes
 )
 
 var globalAuthZPluginMutex sync.Mutex

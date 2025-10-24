@@ -869,6 +869,13 @@ func handleCommonEnvVars() {
 		}
 		GlobalKMS = KMS
 	}
+	timeout, err := strconv.ParseUint(env.Get(config.EnvFileOpenTimeout, "15"), 10, 32)
+	if err != nil {
+		logger.Fatal(errors.New("env FILE_OPEN_TIMEOUT err"), "")
+		return
+	}
+	logger.Info("file open timeout: %d", timeout)
+	globalFileOpenTimeout = uint32(timeout)
 
 	path := env.Get(config.EnvDatabasePath, "")
 	dbhostip := env.Get(config.EnvDatabaseHostIp, path)
