@@ -869,7 +869,7 @@ func handleCommonEnvVars() {
 		}
 		GlobalKMS = KMS
 	}
-	timeout, err := strconv.ParseUint(env.Get(config.EnvFileOpenTimeout, "15"), 10, 32)
+	timeout, err := strconv.ParseUint(env.Get(config.EnvFileOpenTimeout, "360"), 10, 32)
 	if err != nil {
 		logger.Fatal(errors.New("env FILE_OPEN_TIMEOUT err"), "")
 		return
