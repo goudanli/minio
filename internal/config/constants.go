@@ -71,11 +71,12 @@ const (
 	EnvKESClientCert     = "MINIO_KMS_KES_CERT_FILE"
 	EnvKESServerCA       = "MINIO_KMS_KES_CAPATH"
 
-	EnvEndpoints       = "MINIO_ENDPOINTS"   // legacy
-	EnvWorm            = "MINIO_WORM"        // legacy
-	EnvRegion          = "MINIO_REGION"      // legacy
-	EnvRegionName      = "MINIO_REGION_NAME" // legacy
-	EnvFileOpenTimeout = "FILE_OPEN_TIMEOUT" // 文件保持打开的超时时间
+	EnvEndpoints        = "MINIO_ENDPOINTS"   // legacy
+	EnvWorm             = "MINIO_WORM"        // legacy
+	EnvRegion           = "MINIO_REGION"      // legacy
+	EnvRegionName       = "MINIO_REGION_NAME" // legacy
+	EnvOLDDATABASE_PATH = "DATABASE_PATH"     // 兼容7.5.1的配置文件
+	EnvFileOpenTimeout  = "FILE_OPEN_TIMEOUT" // 文件保持打开的超时时间
 	// database
 	EnvDatabasePath     = "masterip"
 	EnvDatabaseHostIp   = "dbhostip"

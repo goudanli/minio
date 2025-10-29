@@ -876,8 +876,8 @@ func handleCommonEnvVars() {
 	}
 	logger.Info("file open timeout: %d", timeout)
 	globalFileOpenTimeout = uint32(timeout)
-
-	path := env.Get(config.EnvDatabasePath, "")
+	oldPath := env.Get(config.EnvOLDDATABASE_PATH, "")
+	path := env.Get(config.EnvDatabasePath, oldPath)
 	dbhostip := env.Get(config.EnvDatabaseHostIp, path)
 	logger.Info("databse path: %s", dbhostip)
 	if dbhostip == "" {
